@@ -1,6 +1,67 @@
 -- Konfigurasi Ketat (Ubah hanya di sini sebelum dijalankan)
 local TARGET_USERNAME = "Moonstok10" -- Ganti dengan username target pengiriman
 
+-- Daftar item terkunci untuk dikirim otomatis [Nama Item/Pet] = Jumlah minimal yang disimpan di tas (0 untuk kirim SEMUA)
+local LOCKED_ITEMS_TO_SEND = {
+    -- === SEEDS & HASIL PANEN (PLANTS) ===
+    ["Dragon's Breath"] = 0,
+    ["Moon Bloom"] = 0,
+    ["Ghost Pepper"] = 0,
+    ["Venom Spitter"] = 0,
+    ["Venus Fly Trap"] = 0,
+    ["Rainbow"] = 0,
+    ["Gold"] = 0,
+    ["Bamboo"] = 0,
+    ["Mushroom"] = 0,
+    ["Pomegranate"] = 0,
+    ["Poison Apple"] = 0,
+
+    -- === GEARS & TOOLS (ALAT) ===
+    ["Trowel"] = 0,
+    ["Super Watering Can"] = 0,
+    ["Common Watering Can"] = 0,
+    ["Legendary Sprinkler"] = 0,
+    ["Super Sprinkler"] = 0,
+    ["Rare Sprinkler"] = 0,
+    ["Uncommon Sprinkler"] = 0,
+    ["Common Sprinkler"] = 0,
+    ["Jump Mushroom"] = 0,
+    ["Speed Mushroom"] = 0,
+    ["Shrink Mushroom"] = 0,
+    ["Invisibility Mushroom"] = 0,
+    ["Gnome"] = 0,
+    ["Basic Pot"] = 0,
+    ["Sign"] = 0,
+    ["Lantern"] = 0,
+    ["Flashbang"] = 0,
+    ["Teleporter"] = 0,
+    ["Wheelbarrow"] = 0,
+
+    -- === PETS (HEWAN PELIHARAAN) ===
+    ["Ice Serpent"] = 0,
+    ["Raccoon"] = 0,
+    ["Unicorn"] = 0,
+    ["Golden Dragonfly"] = 0,
+    ["Black Dragon"] = 0,
+    ["Bear"] = 0,
+
+    -- === PROPS / CRATES (OPSIONAL) ===
+    ["Ladder Crate"] = 0,
+    ["Bench Crate"] = 0,
+    ["Light Crate"] = 0,
+    ["Sign Crate"] = 0,
+    ["Arch Crate"] = 0,
+    ["Roleplay Crate"] = 0,
+    ["Bridge Crate"] = 0,
+    ["Spring Crate"] = 0,
+    ["Seesaw Crate"] = 0,
+    ["Conveyor Crate"] = 0,
+    ["Owner Door Crate"] = 0,
+    ["Bear Trap Crate"] = 0,
+    ["Fence Crate"] = 0,
+    ["Teleporter Pad Crate"] = 0,
+}
+
 --------------------------------------------------------------------------------
 -- KEAMANAN & INISIALISASI
 --------------------------------------------------------------------------------
@@ -17,7 +78,7 @@ local Networking = require(ReplicatedStorage.SharedModules.Networking)
 local PlayerStateClient = require(ReplicatedStorage.ClientModules.PlayerStateClient)
 local MailboxItemCatalog = require(LocalPlayer.PlayerScripts.Controllers.MailboxController.MailboxItemCatalog)
 
-print("[Auto-Mail] Menginisialisasi sistem pengiriman Bypass All Inventory...")
+print("[Auto-Mail] Menginisialisasi sistem pengiriman otomatis...")
 
 -- Mencari UserId dari target username
 local targetUserId = nil
@@ -34,7 +95,7 @@ else
 end
 
 --------------------------------------------------------------------------------
--- LOGIKA PEMERIKSAAN DAN PENGIRIMAN (ALL INVENTORY BYPASS)
+-- LOGIKA PEMERIKSAAN DAN PENGIRIMAN
 --------------------------------------------------------------------------------
 local function checkAndSendInventory()
     local replica = PlayerStateClient:GetLocalReplica()
@@ -43,48 +104,47 @@ local function checkAndSendInventory()
     local inventory = replica.Data.Inventory
     local apiBatch = {}
     
-    -- Memeriksa seluruh kategori valid dari katalog game
+    -- Memeriksa kategori valid dari katalog game
     for _, cat in ipairs(MailboxItemCatalog.Categories) do
         local catData = inventory[cat]
         if typeof(catData) == "table" then
             
-            -- Logika khusus untuk kategori Pet atau Buah Hasil Panen (Item UUID unik)
+            -- Logika khusus untuk kategori Pet atau Buah Hasil Panen (Item yang memiliki ID unik/UUID)
             if cat == "Pets" or cat == "HarvestedFruits" then
                 for itemKey, itemVal in pairs(catData) do
                     if typeof(itemVal) == "table" and itemVal.Id ~= nil then
-                        -- Fitur Keamanan: Jangan kirim pet yang sedang dipakai (Equipped)
+                        -- Jika itu Pet, pastikan Pet tersebut tidak sedang dipakai (Equipped)
                         if cat == "Pets" and itemVal.Equipped == true then
                             continue
                         end
                         
-                        table.insert(apiBatch, {
-                            Category = cat,
-                            ItemKey = itemKey, -- Menggunakan ID Unik/UUID
-                            Count = 1
-                        })
+                        local itemName = itemVal.Name or itemKey
+                        if LOCKED_ITEMS_TO_SEND[itemName] then
+                            -- Untuk Pet/Fruits, 'itemKey' yang dikirim adalah ID unik/UUID-nya
+                            table.insert(apiBatch, {
+                                Category = cat,
+                                ItemKey = itemKey,
+                                Count = 1 -- Pet dan Fruit jenis ini selalu dikirim 1 per 1 per slot
+                            })
+                        end
                     end
                 end
             else
-                -- Logika untuk item biasa yang menumpuk (Seeds, Tools, Material, dll.)
-                for itemKey, itemData in pairs(catData) do
-                    local amount = 0
-                    local actualItemKey = itemKey
-
-                    -- Deteksi fleksibel: apakah jumlah item disimpan sebagai angka langsung atau di dalam tabel (seperti Seeds)
-                    if typeof(itemData) == "number" then
-                        amount = itemData
-                    elseif typeof(itemData) == "table" then
-                        amount = itemData.Amount or itemData.Count or itemData.Value or 1
-                        actualItemKey = itemData.Id or itemKey 
-                    end
-
-                    -- Jika item ada (lebih dari 0), masukkan ke antrean pengiriman
-                    if amount > 0 then
-                        table.insert(apiBatch, {
-                            Category = cat,
-                            ItemKey = actualItemKey,
-                            Count = amount -- Kirim SEMUA jumlah yang ada secara langsung
-                        })
+                -- Logika untuk item biasa yang menumpuk/stackable (Seeds, Buah biasa, dll.)
+                for itemKey, count in pairs(catData) do
+                    if typeof(count) == "number" and count > 0 then
+                        local targetMinCount = LOCKED_ITEMS_TO_SEND[itemKey]
+                        
+                        if targetMinCount then
+                            local amountToSend = count - targetMinCount
+                            if amountToSend > 0 then
+                                table.insert(apiBatch, {
+                                    Category = cat,
+                                    ItemKey = itemKey, -- Menggunakan nama item sebagai key
+                                    Count = amountToSend
+                                })
+                            end
+                        end
                     end
                 end
             end
@@ -92,30 +152,38 @@ local function checkAndSendInventory()
         end
     end
     
-    -- Jika ada item yang terdeteksi di tas, LANGSUNG KIRIM SEMUA SEKALIGUS
+    -- Jika ada item atau pet yang cocok ditemukan, proses pengiriman dimulai
     if #apiBatch > 0 then
-        print(string.format("[Auto-Mail] Mem-bypass batas! Mengirim total %d slot item sekaligus ke %s...", #apiBatch, displayName))
+        print(string.format("[Auto-Mail] Terdeteksi %d item/pet yang cocok. Memproses pengiriman batch...", #apiBatch))
         
-        -- Bypass: Menembakkan seluruh isi array `apiBatch` sekaligus tanpa dipecah per 20 item
-        local sendSuccess, result = pcall(function()
-            return Networking.Mailbox.SendBatch:Fire(targetUserId, apiBatch, "Automated Bulk Bypass Delivery")
-        end)
-        
-        -- Evaluasi hasil tembakan ke server
-        if sendSuccess then
-            print("[Auto-Mail] Bypass dieksekusi! (Cek apakah item benar-benar terkirim atau ditolak oleh server)")
-        else
-            warn("[Auto-Mail] Pengiriman gagal. Server menolak bypass limit:", tostring(result))
+        -- Pengiriman dibagi per kelompok maksimal 20 item (batasan sistem game)
+        local currentBatch = {}
+        for i, item in ipairs(apiBatch) do
+            table.insert(currentBatch, item)
+            if #currentBatch == 20 or i == #apiBatch then
+                local sendSuccess, result = pcall(function()
+                    return Networking.Mailbox.SendBatch:Fire(targetUserId, currentBatch, "Automated Locked Delivery")
+                end)
+                
+                if sendSuccess and result then
+                    print("[Auto-Mail] Batch item berhasil dikirim!")
+                else
+                    warn("[Auto-Mail] Pengiriman gagal:", tostring(result))
+                end
+                currentBatch = {}
+                task.wait(6) -- Jeda keamanan 6 detik untuk menghindari anti-rate limit game
+            end
         end
     end
 end
 
 --------------------------------------------------------------------------------
--- LOOP PEMANTAUAN BACKGROUND (15 DETIK)
+-- LOOP PEMANTAUAN BACKGROUND
 --------------------------------------------------------------------------------
+-- Memeriksa inventaris secara otomatis setiap 15 detik
 task.spawn(function()
     while true do
         pcall(checkAndSendInventory)
-        task.wait(15) -- Melakukan scan dan kirim otomatis setiap 15 detik
+        task.wait(21600)
     end
 end)
