@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService") -- Pindahkan ke atas
 
 local LocalPlayer = Players.LocalPlayer
 local Networking = require(ReplicatedStorage.SharedModules.Networking)
@@ -223,13 +224,14 @@ BackpackLabel.Parent = MainFrame
 -- LOGIKA UTAMA & SISTEM MUTASI
 -- ==========================================
 
+local noclipConnection = nil
 local autoHarvestEnabled = false
 local autoHarvestMode = "Any"
 local autoHarvestThreshold = 0.0
-local autoHarvestMutation = "Any" -- Variabel Filter Mutasi
+local autoHarvestMutation = "Any"
 local autoSellEnabled = false
 local plantsHidden = false
-
+local removeLabels = false
 local originalTransparencies = setmetatable({}, {__mode = "k"})
 local recentlyHarvested = setmetatable({}, {__mode = "k"})
 
@@ -321,14 +323,42 @@ local function updatePlantsVisibility()
     end
 end
 
+
+-- Logika Baru untuk Noclip & Hide
+local noclipEnabled = false
+
 HideToggleBtn.MouseButton1Click:Connect(function()
     plantsHidden = not plantsHidden
+    noclipEnabled = plantsHidden -- Mengikuti status tombol Hide
+
     if plantsHidden then
-        removeLabels = true; HideToggleBtn.BackgroundColor3 = Color3.fromRGB(142, 68, 173); HideToggleBtn.Text = "HIDDEN"
+        removeLabels = true
+        HideToggleBtn.BackgroundColor3 = Color3.fromRGB(142, 68, 173)
+        HideToggleBtn.Text = "HIDDEN"
     else
-        removeLabels = true; HideToggleBtn.BackgroundColor3 = Color3.fromRGB(55, 65, 81); HideToggleBtn.Text = "VISIBLE"
+        removeLabels = false
+        HideToggleBtn.BackgroundColor3 = Color3.fromRGB(55, 65, 81)
+        HideToggleBtn.Text = "VISIBLE"
+        
+        -- Kembalikan collision saat dimatikan
+        if LocalPlayer.Character then
+            for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = true end
+            end
+        end
     end
     updatePlantsVisibility()
+end)
+
+-- Tambahkan Runtime Noclip (Ini akan berjalan terus di background)
+RunService.Stepped:Connect(function()
+    if noclipEnabled and LocalPlayer.Character then
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end
 end)
 
 ThresholdInput:GetPropertyChangedSignal("Text"):Connect(function()
@@ -428,7 +458,7 @@ end)
 -- Auto Sell Loop
 task.spawn(function()
     while true do
-        task.wait(0,1)
+        task.wait(0,01)
         if not ScreenGui.Parent then break end
         
         if autoSellEnabled then
@@ -438,7 +468,7 @@ task.spawn(function()
             
             if #fruits > 0 then
                 pcall(function() Networking.NPCS.SellAll:Fire() end)
-                task.wait(0.1)
+                task.wait(0.01)
                 
                 local stillHasFruits = false
                 for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do if isSellableFruit(item) then stillHasFruits = true break end end
@@ -449,7 +479,7 @@ task.spawn(function()
                         local id = tool:GetAttribute("Id")
                         if id and tool.Parent then
                             pcall(function() Networking.NPCS.SellFruit:Fire(id) end)
-                            task.wait(0.1)
+                            task.wait(0.01)
                         end
                     end
                 end
