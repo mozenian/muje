@@ -178,12 +178,33 @@ local function checkAndSendInventory()
 end
 
 --------------------------------------------------------------------------------
--- LOOP PEMANTAUAN BACKGROUND
+-- ANTI-AFK (WAJIB UNTUK MOBILE/PC JIKA DITINGGAL BERJAM-JAM)
 --------------------------------------------------------------------------------
--- Memeriksa inventaris secara otomatis setiap 15 detik
+local VirtualUser = game:GetService("VirtualUser")
+LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
+    print("[Auto-Mail] Mencegah AFK Kick...")
+end)
+
+--------------------------------------------------------------------------------
+-- LOOP PEMANTAUAN BACKGROUND (VERSI AMAN UNTUK DELTA / MOBILE)
+--------------------------------------------------------------------------------
+local cooldownWaktu = 21600 -- 6 jam dalam detik
+local waktuTerakhirKirim = os.time() - cooldownWaktu -- Dikurangi agar saat pertama di-execute langsung ngirim
+
 task.spawn(function()
     while true do
-        pcall(checkAndSendInventory)
-        task.wait(21600)
+        local waktuSekarang = os.time()
+        
+        -- Jika selisih waktu sekarang dan terakhir kirim sudah lebih dari 6 jam
+        if waktuSekarang - waktuTerakhirKirim >= cooldownWaktu then
+            print("[Auto-Mail] Waktu 6 jam tercapai, mengeksekusi pengiriman...")
+            pcall(checkAndSendInventory)
+            waktuTerakhirKirim = os.time() -- Reset timer
+        end
+        
+        -- Loop kecil 5 detik agar script tidak "tertidur" (dibunuh oleh Android)
+        task.wait(5) 
     end
 end)
