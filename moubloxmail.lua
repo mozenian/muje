@@ -44,7 +44,7 @@ local LOCKED_ITEMS_TO_SEND = {
     ["Ice Serpent"] = 0,
     ["Raccoon"] = 0,
     ["Unicorn"] = 0,
-    ["Golden Dragonfly"] = 0,
+    ["GoldenDragonfly"] = 0,
     ["Black Dragon"] = 0,
     ["Bear"] = 0,
 
