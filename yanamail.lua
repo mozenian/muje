@@ -1,5 +1,5 @@
 -- Konfigurasi Ketat (Ubah hanya di sini sebelum dijalankan)
-local TARGET_USERNAME = "tuyulkace1" -- Ganti dengan username target pengiriman
+local TARGET_USERNAME = "sanzRNL_113" -- Ganti dengan username target pengiriman
 
 -- Daftar item terkunci untuk dikirim otomatis [Nama Item/Pet] = Jumlah minimal yang disimpan di tas (0 untuk kirim SEMUA)
 local LOCKED_ITEMS_TO_SEND = {
