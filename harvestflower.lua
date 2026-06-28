@@ -389,7 +389,7 @@ end)
 -- Auto Harvest Loop (Ditambah Sistem Pengecekan Mutasi)
 task.spawn(function()
     while true do
-        task.wait(0.01)
+        task.wait(0.001)
         if not ScreenGui.Parent then break end
         
         if autoHarvestEnabled then
@@ -443,7 +443,7 @@ task.spawn(function()
                                     if shouldHarvest and passesMutation then
                                         recentlyHarvested[prompt] = os.clock()
                                         pcall(fireproximityprompt, prompt)
-                                        task.wait(0.01) 
+                                        task.wait(0.001) 
                                     end
                                 end
                             end
