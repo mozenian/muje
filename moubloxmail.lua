@@ -5,6 +5,7 @@ local TARGET_USERNAME = "Moonstok10" -- Ganti dengan username target pengiriman
 local LOCKED_ITEMS_TO_SEND = {
     -- === SEEDS & HASIL PANEN (PLANTS) ===
     ["Dragon's Breath"] = 0,
+    ["Hypno Bloom"] = 0,
     ["Moon Bloom"] = 0,
     ["Ghost Pepper"] = 0,
     ["Venom Spitter"] = 0,
