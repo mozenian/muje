@@ -281,3 +281,15 @@ task.spawn(function()
         end
     end
 end)
+
+-- Tambahkan ini di bagian bawah script, di luar blok task.spawn utama
+local VirtualUser = game:GetService("VirtualUser")
+
+game:GetService("Players").LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new(0, 0))
+    -- Menggunakan addLog jika fungsi tersebut tersedia di scope global
+    if typeof(addLog) == "function" then
+        addLog("✨ Anti-AFK aktif: Mencegah disconnect.")
+    end
+end)
