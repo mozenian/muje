@@ -15,7 +15,7 @@ local Config = {
     
     -- DAFTAR PET BIASA YANG BOLEH DITARIK & DIJUAL (Huruf kecil)
     PetsToProcess = {
-        "bear", "frog", 
+        "bear", "frog", "bee",
         "bunny", "owl", "deer", "turtle", "robin"
     },
 
