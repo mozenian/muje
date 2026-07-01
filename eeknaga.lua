@@ -187,7 +187,7 @@ local function processGardenAndInventory(isManual)
                             soldCount = soldCount + 1
                             sendPacket("\173\000\021$", petUUID) -- Header Jual (Sell)
                             addLog("💰 Terjual: " .. pet.Name)
-                            task.wait(0.1)
+                            task.wait(3)
                         end
                     end
                 end
