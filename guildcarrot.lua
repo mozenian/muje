@@ -11,8 +11,11 @@ local function performAntigravitySell()
 end
 
 local function performAutoHarvest()
+    local gardensFolder = Workspace:FindFirstChild("Gardens")
+    if not gardensFolder then return end
+
     local Plot = nil
-    for _, plot in ipairs(workspace.Gardens:GetChildren()) do
+    for _, plot in ipairs(gardensFolder:GetChildren()) do
         if plot:GetAttribute("Owner") == LocalPlayer.Name or plot:GetAttribute("OwnerUserId") == LocalPlayer.UserId then
             Plot = plot
             break
@@ -33,26 +36,25 @@ local function send(data)
     RemoteEvent:FireServer(buffer.fromstring(data))
 end
 
--- Fungsi untuk membeli benih
+-- Fungsi untuk membeli benih (Menggunakan raw buffer khusus Carrot)
 local function buySeed(seedName)
-    local bufferData = buffer.create(1 + 1 + #seedName)
-    buffer.writeu8(bufferData, 0, 121) -- 'y'
-    buffer.writeu8(bufferData, 1, #seedName)
-    for i = 1, #seedName do
-        buffer.writeu8(bufferData, 1 + i, string.byte(seedName, i))
+    if seedName == "Carrot" then
+        local args = { buffer.fromstring("y\000\006Carrot") }
+        RemoteEvent:FireServer(unpack(args))
+    else
+        local payload = "y\000" .. string.char(#seedName) .. seedName
+        local args = { buffer.fromstring(payload) }
+        RemoteEvent:FireServer(unpack(args))
     end
-    RemoteEvent:FireServer(bufferData)
 end
 
--- Fungsi BARU: Mengambil tool dari Backpack dan memegangnya (Equip)
+-- Mengambil tool dari Backpack dan memegangnya (Equip)
 local function equipTool(toolName)
     local character = LocalPlayer.Character
     if not character then return end
     
-    -- Cek apakah sudah dipegang di tangan (Character)
     if character:FindFirstChild(toolName) then return end
     
-    -- Cari di Backpack dan equip menggunakan Humanoid
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if backpack then
         local tool = backpack:FindFirstChild(toolName)
@@ -65,15 +67,37 @@ local function equipTool(toolName)
     end
 end
 
+-- Fungsi BARU: Berinteraksi dengan NPC menggunakan ProximityPrompt
+local function interactWithNPC(npcName)
+    local npc = Workspace:FindFirstChild(npcName, true)
+    if npc then
+        local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt then
+            -- Dekati NPC terlebih dahulu untuk mencegah gagal interaksi karena jarak
+            local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+            local root = character:WaitForChild("HumanoidRootPart")
+            local targetPart = npc:IsA("Model") and (npc.PrimaryPart or npc:FindFirstChild("HumanoidRootPart")) or (npc:IsA("BasePart") and npc)
+            
+            if targetPart then
+                root.CFrame = targetPart.CFrame + Vector3.new(0, 0, 3)
+                task.wait(0.5)
+                fireproximityprompt(prompt)
+                task.wait(1) -- Beri waktu agar dialog/menu toko terbuka
+            end
+        end
+    end
+end
+
 local function runTutorialSteps()
+    -- Interaksi dengan Sam terlebih dahulu sebelum mengeksekusi packet
+    interactWithNPC("Sam")
+    
     send("\006\000\005SeedsT\000\133\215\132C\197\000\018C\228Y\015\195")
     task.wait(2) 
     
-    -- Beli Carrot
     buySeed("Carrot")
-    task.wait(1.5) -- Beri waktu sedikit agar item masuk ke Backpack
+    task.wait(1.5)
     
-    -- Pegang Carrot agar tutorial terdeteksi
     equipTool("Carrot")
     task.wait(1.5)
     
@@ -105,12 +129,12 @@ local function applyFpsBoost()
         if targetCFrame then root.CFrame = targetCFrame + Vector3.new(0, 2, 3) end
     end
 
-    -- Menghapus objek visual yang tidak perlu + memastikan SpawnPoint dihapus
-    local objectsToRemove = {"MidLayer", "Baseplate", "Middle", "Grass", "Gardens", "SpawnPoint"}
-    for _, name in pairs(objectsToRemove) do
+    -- Menghancurkan objek secara permanen menggunakan :Destroy()
+    local objectsToDestroy = {"MidLayer", "Baseplate", "Middle", "Grass", "Gardens", "SpawnPoint"}
+    for _, name in pairs(objectsToDestroy) do
         local obj = Workspace:FindFirstChild(name)
-        if obj then
-            if obj:IsA("BasePart") then obj.Transparency = 1; obj.CanCollide = false else obj:Destroy() end
+        if obj then 
+            obj:Destroy() 
         end
     end
 
@@ -121,7 +145,8 @@ local function applyFpsBoost()
     for _, obj in pairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
             obj.Material = Enum.Material.SmoothPlastic
-            if obj:FindFirstChildOfClass("Decal") then obj:FindFirstChildOfClass("Decal"):Destroy() end
+            local decal = obj:FindFirstChildOfClass("Decal")
+            if decal then decal:Destroy() end
         end
     end
     
@@ -137,7 +162,7 @@ local function applyFpsBoost()
                     task.wait(0.2) 
                 end
             end
-            task.wait(120)
+            task.wait(10)
         end
     end)
 end
