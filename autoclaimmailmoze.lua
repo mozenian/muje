@@ -2,45 +2,38 @@
 if game.PlaceId ~= 97598239454123 then return end
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Networking = require(ReplicatedStorage.SharedModules.Networking)
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
+-- Mengambil referensi Module & RemoteEvent
+local Networking = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Networking"))
+local packetRemote = ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"):WaitForChild("RemoteEvent")
+
 local function log(message)
-    print("[AutoClaimSell]: " .. message)
+    print("[AutoMail & DailyDeal]: " .. message)
 end
 
--- Fungsi untuk mendeteksi apakah item adalah buah yang bisa dijual
+-- Fungsi mendeteksi item buah
 local function isSellableFruit(tool)
-    -- Sesuaikan dengan logika pengecekan item yang ada di script Anda
     return tool:IsA("Tool") and not (tool.Name:find("Pot") or tool.Name:find("Can") or tool.Name:find("Trowel") or tool.Name:find("Bag"))
 end
 
--- Fungsi untuk menjual semua isi inventory
-local function sellAllFruits()
-    log("Menjual isi inventory...")
-    pcall(function()
-        Networking.NPCS.SellAll:Fire()
-    end)
-end
-
-local function claimAndSell()
+-- 1. Fungsi Auto Claim Mail (Tanpa Sell)
+local function claimMail()
     log("Memeriksa inbox...")
     
     local ok, inbox = pcall(function()
         return Networking.Mailbox.OpenInbox:Fire()
     end)
     
-    if not ok or typeof(inbox) ~= "table" then
-        return
-    end
+    if not ok or typeof(inbox) ~= "table" then return end
     
     local count = 0
     for _ in pairs(inbox) do count = count + 1 end
     
     if count == 0 then return end
     
-    log("Mengklaim " .. count .. " item...")
+    log("Mengklaim " .. count .. " item dari mail...")
     
     for id in pairs(inbox) do
         local success = pcall(function() 
@@ -53,26 +46,88 @@ local function claimAndSell()
         task.wait(0.5) 
     end
     
-    log("Klaim selesai, memicu penjualan...")
-    task.wait(1.0) -- Jeda singkat agar item masuk ke inventory sebelum dijual
-    sellAllFruits()
+    log("Klaim mail selesai.")
 end
 
--- 1. Jalankan sekali saat script aktif
-task.spawn(claimAndSell)
+-- 2. Fungsi Auto Daily Deal Steven
+local function checkAndDealSteven()
+    local fruitCount = 0
+    local fruitsToDestroy = {}
+    
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local character = LocalPlayer.Character
 
--- 2. Jalankan otomatis saat ada mail baru masuk
+    -- Hitung dan kumpulkan buah di Backpack
+    if backpack then
+        for _, item in pairs(backpack:GetChildren()) do
+            if isSellableFruit(item) then
+                fruitCount = fruitCount + 1
+                table.insert(fruitsToDestroy, item)
+            end
+        end
+    end
+
+    -- Hitung dan kumpulkan buah yang sedang dipegang di Character
+    if character then
+        for _, item in pairs(character:GetChildren()) do
+            if isSellableFruit(item) then
+                fruitCount = fruitCount + 1
+                table.insert(fruitsToDestroy, item)
+            end
+        end
+    end
+
+    -- Jika buah mencapai 10 atau lebih, jalankan Daily Deal
+    if fruitCount >= 10 then
+        log("Terdapat " .. fruitCount .. " buah. Menjalankan Daily Deal ke Steven...")
+        
+        -- Mengirim Packet 1
+        local args1 = { buffer.fromstring("\178\000\026") }
+        packetRemote:FireServer(unpack(args1))
+        
+        task.wait(0.5) -- Jeda aman agar server memproses request
+        
+        -- Mengirim Packet 2
+        local args2 = { buffer.fromstring("\179\000") }
+        packetRemote:FireServer(unpack(args2))
+        
+        -- Hilangkan objek menggunakan destroy agar inventory bersih
+        for _, item in ipairs(fruitsToDestroy) do
+            if item and item.Parent then
+                item:Destroy()
+            end
+        end
+        log("Daily Deal berhasil dan buah telah dihapus dari inventory.")
+    end
+end
+
+-- ==========================================
+-- EKSEKUSI & LOOPING
+-- ==========================================
+
+-- Jalankan pengecekan Mail sekali saat script pertama kali aktif
+task.spawn(claimMail)
+
+-- Event listener saat ada mail baru masuk
 Networking.Mailbox.Updated.OnClientEvent:Connect(function()
     log("Mail baru terdeteksi!")
-    task.spawn(claimAndSell)
+    task.spawn(claimMail)
 end)
 
--- 3. Loop berkala setiap 5 menit (300 detik)
+-- Loop berkala setiap 5 menit (300 detik) untuk memeriksa inbox (backup)
 task.spawn(function()
     while true do
         task.wait(300)
-        claimAndSell()
+        claimMail()
     end
 end)
 
-log("Auto Claim & Sell aktif.")
+-- Loop untuk mengecek ketersediaan 10 buah secara berkala setiap 10 detik
+task.spawn(function()
+    while true do
+        task.wait(10)
+        pcall(checkAndDealSteven)
+    end
+end)
+
+log("Script Auto Claim Mail & Daily Deal Steven telah aktif.")
