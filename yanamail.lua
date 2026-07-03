@@ -16,6 +16,7 @@ local LOCKED_ITEMS_TO_SEND = {
     ["Mushroom"] = 0,
     ["Pomegranate"] = 0,
     ["Poison Apple"] = 0,
+    ["Carrot"] = 0,
 
     -- === GEARS & TOOLS (ALAT) ===
     ["Trowel"] = 0,
