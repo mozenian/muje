@@ -36,7 +36,7 @@ local function send(data)
     RemoteEvent:FireServer(buffer.fromstring(data))
 end
 
--- Fungsi untuk membeli benih (Menggunakan raw buffer khusus Carrot)
+-- Fungsi khusus untuk membeli Seed (awalan 'y')
 local function buySeed(seedName)
     if seedName == "Carrot" then
         local args = { buffer.fromstring("y\000\006Carrot") }
@@ -48,7 +48,14 @@ local function buySeed(seedName)
     end
 end
 
--- Mengambil tool dari Backpack dan memegangnya (Equip)
+-- Fungsi khusus untuk membeli Gear (awalan '}')
+local function buyGear(gearName)
+    -- Format string: "}" + \000 + panjang karakter gear + nama gear
+    local payload = "}\000" .. string.char(#gearName) .. gearName
+    local args = { buffer.fromstring(payload) }
+    RemoteEvent:FireServer(unpack(args))
+end
+
 local function equipTool(toolName)
     local character = LocalPlayer.Character
     if not character then return end
@@ -67,13 +74,11 @@ local function equipTool(toolName)
     end
 end
 
--- Fungsi BARU: Berinteraksi dengan NPC menggunakan ProximityPrompt
 local function interactWithNPC(npcName)
     local npc = Workspace:FindFirstChild(npcName, true)
     if npc then
         local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
         if prompt then
-            -- Dekati NPC terlebih dahulu untuk mencegah gagal interaksi karena jarak
             local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
             local root = character:WaitForChild("HumanoidRootPart")
             local targetPart = npc:IsA("Model") and (npc.PrimaryPart or npc:FindFirstChild("HumanoidRootPart")) or (npc:IsA("BasePart") and npc)
@@ -82,14 +87,13 @@ local function interactWithNPC(npcName)
                 root.CFrame = targetPart.CFrame + Vector3.new(0, 0, 3)
                 task.wait(0.5)
                 fireproximityprompt(prompt)
-                task.wait(1) -- Beri waktu agar dialog/menu toko terbuka
+                task.wait(1) 
             end
         end
     end
 end
 
 local function runTutorialSteps()
-    -- Interaksi dengan Sam terlebih dahulu sebelum mengeksekusi packet
     interactWithNPC("Sam")
     
     send("\006\000\005SeedsT\000\133\215\132C\197\000\018C\228Y\015\195")
@@ -129,7 +133,7 @@ local function applyFpsBoost()
         if targetCFrame then root.CFrame = targetCFrame + Vector3.new(0, 2, 3) end
     end
 
-    -- Menghancurkan objek secara permanen menggunakan :Destroy()
+    -- Menghapus objek visual secara permanen dengan :Destroy()
     local objectsToDestroy = {"MidLayer", "Baseplate", "Middle", "Grass", "Gardens", "SpawnPoint"}
     for _, name in pairs(objectsToDestroy) do
         local obj = Workspace:FindFirstChild(name)
@@ -152,16 +156,42 @@ local function applyFpsBoost()
     
     Lighting.GlobalShadows = false
     Workspace.CurrentCamera.FieldOfView = 30
+end
 
-    local SEEDS_TO_BUY = {"Carrot"}
+local function startAutoBuy()
+    -- Daftar Seed yang akan dibeli
+    local SEEDS_TO_BUY = {"Carrot", "Moon Bloom", "Hypno Bloom", "Dragon's Breath", "Venom Spitter", "Venus Fly Trap"}
+    
+    -- Daftar tipe Gear yang akan dibeli (bisa kamu tambah/ubah sesuai keinginan)
+    local GEARS_TO_BUY = {
+        "Common Watering Can",
+        "Common Sprinkler",
+        "Uncommon Sprinkler",
+		"Rare Sprinkler",
+		"Legendary Sprinkler",
+		"Super Sprinkler",
+		"Super Watering Can",
+		"Trowel"
+    }
+
     task.spawn(function()
         while true do
+            -- Beli Seed (10 kali per loop)
             for _, seedName in pairs(SEEDS_TO_BUY) do
                 for i = 1, 10 do 
                     pcall(function() buySeed(seedName) end)
                     task.wait(0.2) 
                 end
             end
+            
+            -- Beli Gear (1 kali per jenis di setiap loop)
+            for _, gearName in pairs(GEARS_TO_BUY) do
+                for i = 1, 10 do 
+                    pcall(function() buyGear(gearName) end)
+                    task.wait(0.2) 
+                end
+            end
+            
             task.wait(10)
         end
     end)
@@ -171,3 +201,4 @@ if Workspace:GetAttribute("InTutorial") then
     runTutorialSteps()
 end
 applyFpsBoost()
+startAutoBuy()
