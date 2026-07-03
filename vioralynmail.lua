@@ -12,6 +12,7 @@ local LOCKED_ITEMS_TO_SEND = {
     ["Venus Fly Trap"] = 0,
     ["Rainbow"] = 0,
     ["Gold"] = 0,
+    ["Mega"] = 0,
     ["Bamboo"] = 0,
     ["Mushroom"] = 0,
     ["Pomegranate"] = 0,
