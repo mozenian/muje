@@ -79,7 +79,7 @@ end
 local function startAutoBuy()
     print("[6/6] Mengaktifkan Auto Buy...")
     local SEEDS = {"Carrot", "Moon Bloom", "Hypno Bloom", "Dragon's Breath", "Venom Spitter", "Venus Fly Trap"}
-    local GEARS = {"Common Watering Can", "Common Sprinkler", "Uncommon Sprinkler", "Rare Sprinkler", "Legendary Sprinkler", "Super Sprinkler", "Super Watering Can", "Trowel"}
+    local GEARS = {"Common Sprinkler", "Uncommon Sprinkler", "Rare Sprinkler", "Legendary Sprinkler", "Super Sprinkler", "Super Watering Can", "Trowel"}
 
     task.spawn(function()
         while true do
@@ -118,7 +118,15 @@ teleportToSteven()
 task.wait(1)
 claimMail()
 checkAndDealSteven()
-applyFpsBoost()
 startAutoBuy()
+
+-- Deteksi InTutorial sebelum eksekusi FPS Boost
+task.spawn(function()
+    print("[*] Menunggu InTutorial selesai untuk FPS Boost...")
+    while Workspace:GetAttribute("InTutorial") do
+        task.wait(0.5)
+    end
+    applyFpsBoost()
+end)
 
 Networking.Mailbox.Updated.OnClientEvent:Connect(function() task.spawn(claimMail) end)
