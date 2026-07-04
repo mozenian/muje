@@ -2,8 +2,32 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualUser = game:GetService("VirtualUser")
 local RemoteEvent = ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"):WaitForChild("RemoteEvent")
 local LocalPlayer = Players.LocalPlayer
+
+-- Fungsi Anti-AFK
+local function setupAntiAFK()
+    print("[+] Anti-AFK diaktifkan.")
+    LocalPlayer.Idled:Connect(function()
+        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    end)
+    
+    -- Loop pergerakan kecil setiap 5 menit agar tidak terbaca diam
+    task.spawn(function()
+        while true do
+            task.wait(300)
+            local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.CFrame = root.CFrame + Vector3.new(0, 0.1, 0)
+                task.wait(0.1)
+                root.CFrame = root.CFrame - Vector3.new(0, 0.1, 0)
+            end
+        end
+    end)
+end
 
 local function performAntigravitySell()
     local Networking = require(ReplicatedStorage.SharedModules.Networking)
@@ -36,7 +60,6 @@ local function send(data)
     RemoteEvent:FireServer(buffer.fromstring(data))
 end
 
--- Fungsi khusus untuk membeli Seed (awalan 'y')
 local function buySeed(seedName)
     if seedName == "Carrot" then
         local args = { buffer.fromstring("y\000\006Carrot") }
@@ -48,9 +71,8 @@ local function buySeed(seedName)
     end
 end
 
--- Fungsi khusus untuk membeli Gear (awalan '}')
 local function buyGear(gearName)
-    -- Format string: "}" + \000 + panjang karakter gear + nama gear
+    if gearName == "" then return end
     local payload = "}\000" .. string.char(#gearName) .. gearName
     local args = { buffer.fromstring(payload) }
     RemoteEvent:FireServer(unpack(args))
@@ -59,17 +81,12 @@ end
 local function equipTool(toolName)
     local character = LocalPlayer.Character
     if not character then return end
-    
-    if character:FindFirstChild(toolName) then return end
-    
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if backpack then
         local tool = backpack:FindFirstChild(toolName)
         if tool and tool:IsA("Tool") then
             local humanoid = character:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid:EquipTool(tool)
-            end
+            if humanoid then humanoid:EquipTool(tool) end
         end
     end
 end
@@ -82,7 +99,6 @@ local function interactWithNPC(npcName)
             local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
             local root = character:WaitForChild("HumanoidRootPart")
             local targetPart = npc:IsA("Model") and (npc.PrimaryPart or npc:FindFirstChild("HumanoidRootPart")) or (npc:IsA("BasePart") and npc)
-            
             if targetPart then
                 root.CFrame = targetPart.CFrame + Vector3.new(0, 0, 3)
                 task.wait(0.5)
@@ -95,29 +111,21 @@ end
 
 local function runTutorialSteps()
     interactWithNPC("Sam")
-    
     send("\006\000\005SeedsT\000\133\215\132C\197\000\018C\228Y\015\195")
     task.wait(2) 
-    
     buySeed("Carrot")
     task.wait(1.5)
-    
     equipTool("Carrot")
     task.wait(1.5)
-    
     send("\006\000\006GardenT\000\192\151\200C\006\129\018C\b\172\003\195")
-    task.wait(2)
-    
+    task.wait(2) 
     local pingArgs = { 495, 1782960161.888541 }
     game:GetService("ReplicatedStorage"):WaitForChild("UserGenerated"):WaitForChild("Analytics"):WaitForChild("ClientKit"):WaitForChild("Ping"):FireServer(unpack(pingArgs))
-    
     local plantArgs = { buffer.fromstring("\n\000t\213\212C\254Z\014C\153\241\r\195\006Carrot"), {Instance.new("Tool")} }
     RemoteEvent:FireServer(unpack(plantArgs))
-    
     task.wait(15)
     performAutoHarvest()
     task.wait(2)
-    
     send("\006\000\004SellT\000\242.\134C\006\001\018C\180\240\254\194")
     task.wait(2)
     performAntigravitySell()
@@ -133,13 +141,10 @@ local function applyFpsBoost()
         if targetCFrame then root.CFrame = targetCFrame + Vector3.new(0, 2, 3) end
     end
 
-    -- Menghapus objek visual secara permanen dengan :Destroy()
     local objectsToDestroy = {"MidLayer", "Baseplate", "Middle", "Grass", "Gardens", "SpawnPoint"}
     for _, name in pairs(objectsToDestroy) do
         local obj = Workspace:FindFirstChild(name)
-        if obj then 
-            obj:Destroy() 
-        end
+        if obj then obj:Destroy() end
     end
 
     for _, effect in pairs(Lighting:GetChildren()) do
@@ -153,42 +158,34 @@ local function applyFpsBoost()
             if decal then decal:Destroy() end
         end
     end
-    
     Lighting.GlobalShadows = false
     Workspace.CurrentCamera.FieldOfView = 30
 end
 
 local function startAutoBuy()
-    -- Daftar Seed yang akan dibeli
     local SEEDS_TO_BUY = {"Carrot"}
-    
-    -- Daftar tipe Gear yang akan dibeli (bisa kamu tambah/ubah sesuai keinginan)
-    local GEARS_TO_BUY = {
-		""
-    }
-
+    local GEARS_TO_BUY = {}
     task.spawn(function()
         while true do
-            -- Beli Seed (10 kali per loop)
             for _, seedName in pairs(SEEDS_TO_BUY) do
                 for i = 1, 10 do 
                     pcall(function() buySeed(seedName) end)
                     task.wait(0.2) 
                 end
             end
-            
-            -- Beli Gear (1 kali per jenis di setiap loop)
             for _, gearName in pairs(GEARS_TO_BUY) do
                 for i = 1, 10 do 
                     pcall(function() buyGear(gearName) end)
                     task.wait(0.2) 
                 end
             end
-            
             task.wait(10)
         end
     end)
 end
+
+-- --- EKSEKUSI ---
+setupAntiAFK()
 
 if Workspace:GetAttribute("InTutorial") then
     runTutorialSteps()
