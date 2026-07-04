@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualUser = game:GetService("VirtualUser")
 local RemoteEvent = ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"):WaitForChild("RemoteEvent")
 local LocalPlayer = Players.LocalPlayer
 local Networking = require(ReplicatedStorage.SharedModules.Networking)
@@ -95,7 +96,19 @@ local function startAutoBuy()
     end)
 end
 
+-- 7. ANTI AFK
+local function setupAntiAFK()
+    print("[+] Anti-AFK diaktifkan.")
+    LocalPlayer.Idled:Connect(function()
+        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    end)
+end
+
 -- --- EKSEKUSI URUTAN ---
+setupAntiAFK()
+
 if Workspace:GetAttribute("InTutorial") then
     completeTutorialInstantly()
     task.wait(1)
