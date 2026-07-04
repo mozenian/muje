@@ -39,13 +39,13 @@ local function teleportToSteven()
             root.CFrame = target.CFrame + Vector3.new(0, 3, 3)
             task.wait(0.5)
             
-            -- FITUR ANTI VOID: Mengunci karakter & membuat platform pijakan agar tidak jatuh saat map dihapus
+            -- FITUR ANTI VOID: Mengunci karakter & membuat platform pijakan
             root.Anchored = true 
             local plat = Instance.new("Part")
             plat.Size = Vector3.new(50, 2, 50)
             plat.Position = root.Position - Vector3.new(0, 4, 0)
             plat.Anchored = true
-            plat.Transparency = 1 -- Transparan agar tidak menghalangi pandangan
+            plat.Transparency = 1 
             plat.Parent = Workspace
         end
     end
@@ -165,7 +165,7 @@ local function startAutoSell()
     end)
 end
 
--- 7. AUTO BUY
+-- 7. AUTO BUY (SUDAH DIPERBARUI: Beda opcode untuk Seeds dan Gears)
 local function startAutoBuy()
     print("[7/7] Mengaktifkan Auto Buy...")
     
@@ -179,6 +179,7 @@ local function startAutoBuy()
 
     task.spawn(function()
         while true do
+            -- Eksekusi Beli Bibit (Menggunakan awalan "{\000")
             for _, itemName in ipairs(SEEDS) do 
                 local payloadString = "{\000" .. string.char(#itemName) .. itemName
                 local args = { buffer.fromstring(payloadString) }
@@ -188,8 +189,9 @@ local function startAutoBuy()
                 end
             end
             
+            -- Eksekusi Beli Alat (Menggunakan awalan "\127\000")
             for _, itemName in ipairs(GEARS) do 
-                local payloadString = "{\000" .. string.char(#itemName) .. itemName
+                local payloadString = "\127\000" .. string.char(#itemName) .. itemName
                 local args = { buffer.fromstring(payloadString) }
                 for i = 1, 3 do 
                     pcall(function() RemoteEvent:FireServer(unpack(args)) end)
@@ -222,14 +224,13 @@ task.spawn(function()
     -- 1. BYPASS TUTORIAL
     if Workspace:GetAttribute("InTutorial") then
         completeTutorialInstantly()
-        -- Tahan eksekusi selanjutnya sampai tutorial benar-benar hilang dari Workspace
         while Workspace:GetAttribute("InTutorial") do
             task.wait(0.5)
         end
         task.wait(1)
     end
     
-    -- 2. TELEPORT KE STEVEN (Sudah ada anti-void di dalam fungsinya)
+    -- 2. TELEPORT KE STEVEN (Sudah ada pengaman map void)
     teleportToSteven()
     task.wait(1)
     
@@ -251,5 +252,5 @@ task.spawn(function()
     -- 7. AUTO BUY
     startAutoBuy()
     
-    print("[+] Selesai! Semua skrip berjalan normal tanpa jatuh ke void.")
+    print("[+] Selesai! Semua urutan tereksekusi dengan sempurna.")
 end)
