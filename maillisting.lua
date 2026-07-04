@@ -129,6 +129,6 @@ end
 task.spawn(function()
     while true do
         pcall(checkAndSendInventory)
-        task.wait(3000)
+        task.wait(31600)
     end
 end)
