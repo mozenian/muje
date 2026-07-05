@@ -170,12 +170,12 @@ local function startAutoBuy()
     print("[7/7] Mengaktifkan Auto Buy...")
     
     local SEEDS = {
-        "Carrot", "Coconut", "Moon Bloom",
+        "Carrot", "Coconut", "Moon Bloom", "Rocket Pop",
         "Hypno Bloom", "Dragon's Breath", "Venom Spitter", "Venus Fly Trap"
     } 
     
     local GEARS = {
-        "Rare Sprinkler", "Legendary Sprinkler", "Super Sprinkler", "Super Watering Can"
+        "Legendary Sprinkler", "Super Sprinkler", "Super Watering Can"
     }
 
     task.spawn(function()
