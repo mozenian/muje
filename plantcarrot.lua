@@ -1,6 +1,6 @@
 getgenv().WisHUBCarrotConfig = {
 	AutoPlant = true,
-	PlantSeed = "Carrot",
+	PlantSeed = "Mega",
 	AutoKick = true,
 
 	AutoHarvest = true,
