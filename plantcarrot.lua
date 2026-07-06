@@ -1819,11 +1819,7 @@ local function gardenHasWantedCarrot()
 end
 
 local function rejoinGame()
-	if #game.JobId > 0 then
-		TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
-	else
-		TeleportService:Teleport(game.PlaceId, player)
-	end
+	TeleportService:Teleport(game.PlaceId, player)
 end
 
 local function queueRollbackOffNextRun()
@@ -1934,17 +1930,18 @@ local function startRollbackRejoinMonitor()
 	safeSpawn("rejoin", function()
 		task.wait(cfgNumber("RejoinDelay", 8, 0))
 		while isCurrentRun() and cfgBool("AutoRejoin", false) do
+			local hasWanted, foundKg = gardenHasWantedCarrot()
+			if hasWanted then
+				disableRollbackOnce()
+				sendDiscordWebhook(foundKg)
+				task.wait(1)
+				player:Kick(string.format("Berhasil menemukan target Carrot seberat %.2f Kg! Rollback dimatikan.", foundKg or 0))
+				return
+			end
+
 			local seedName = getRejoinSeedName()
 			local noSprinklers = #getPlacedSprinklers() == 0
 			if isSeedInventoryEmpty(seedName) or noSprinklers then
-				local hasWanted, foundKg = gardenHasWantedCarrot()
-				if hasWanted then
-					disableRollbackOnce()
-					sendDiscordWebhook(foundKg)
-					task.wait(1)
-					player:Kick(string.format("Berhasil menemukan target Carrot seberat %.2f Kg! Rollback dimatikan.", foundKg or 0))
-					return
-				end
 				rejoinGame()
 				return
 			end
@@ -1976,11 +1973,7 @@ local function setupAutoReconnect()
 		
 		task.wait(3) -- Wait a bit to ensure session lock clears before re-rejoining
 		pcall(function()
-			if #game.JobId > 0 then
-				TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
-			else
-				TeleportService:Teleport(game.PlaceId, player)
-			end
+			TeleportService:Teleport(game.PlaceId, player)
 		end)
 	end)
 end
