@@ -4,7 +4,7 @@ getgenv().WisHUBCarrotConfig = {
 	AutoKick = true,
 
 	AutoHarvest = true,
-	HarvestBelowKg = 50,
+	HarvestBelowKg = 100,
 
 	AutoSell = true,
 	AutoSprinkler = true,
