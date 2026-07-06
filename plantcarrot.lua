@@ -1,6 +1,7 @@
 getgenv().WisHUBCarrotConfig = {
 	AutoPlant = true,
 	PlantSeed = "Mega",
+	AutoKick = true,
 
 	AutoHarvest = true,
 	HarvestBelowKg = 70,
@@ -1777,21 +1778,21 @@ local function gardenHasWantedCarrot()
 	local checked = 0
 	for _, plant in ipairs(plants:GetChildren()) do
 		if carrotMatchesWantedKg(plant, targetKg) then
-			return true
+			return true, getObjectKg(plant)
 		end
 
 		local fruits = plant:FindFirstChild("Fruits")
 		if fruits then
 			for _, fruit in ipairs(fruits:GetChildren()) do
 				if carrotMatchesWantedKg(fruit, targetKg) then
-					return true
+					return true, getObjectKg(fruit)
 				end
 			end
 		end
 
 		for _, obj in ipairs(plant:GetDescendants()) do
 			if carrotMatchesWantedKg(obj, targetKg) then
-				return true
+				return true, getObjectKg(obj)
 			end
 			checked += 1
 			if checked % 150 == 0 then
@@ -1917,6 +1918,7 @@ local function applyNoUiConfig()
 	state.farmSpeed = cfgNumber("Speed", state.farmSpeed, 0.1, 1)
 	state.selectedPlantSeed = cfgString("PlantSeed", state.selectedPlantSeed)
 	state.selectedSprinklers = cfgSelectedSprinklers()
+	state.autoKick = cfgBool("AutoKick", true)
 end
 
 local function startTargetMonitor()
@@ -1924,17 +1926,35 @@ local function startTargetMonitor()
 		while isCurrentRun() do
 			local targetKg = tonumber(state.harvestKg) or 0
 			
-			if targetKg > 0 and gardenHasWantedCarrot() then
-				state.autoPlantCarrot = false 
-				disableRollbackOnce() 
-				break 
+			if targetKg > 0 then
+				local hasTarget, foundKg = gardenHasWantedCarrot() 
+				
+				if hasTarget then
+					-- 1. Matikan SEMUA otomatisasi agar script berhenti beraktivitas
+					state.autoPlantCarrot = false 
+					state.autoHarvestCarrot = false
+					state.autoSellAll = false
+					
+					-- 2. Batalkan rollback (tambahkan parameter 'true' untuk force)
+					disableRollbackOnce(true) 
+					
+					-- 3. Perpanjang jeda menjadi 6 detik agar server benar-benar menyimpan data tanaman
+					task.wait(9) 
+					
+					-- 4. Eksekusi Kick
+					if state.autoKick then
+						local kgFormat = string.format("%.2f", foundKg)
+						player:Kick("Congrast you got " .. kgFormat .. " kg carrot in your garden")
+					end
+					
+					break 
+				end
 			end
 			
 			task.wait(2)
 		end
 	end)
 end
-
 local function boot()
 	applyNoUiConfig()
 	startLoadingStuckRelogWatchdog()
