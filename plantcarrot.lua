@@ -1,7 +1,6 @@
 getgenv().WisHUBCarrotConfig = {
 	AutoPlant = true,
 	PlantSeed = "Mega",
-	AutoKick = true,
 
 	AutoHarvest = true,
 	HarvestBelowKg = 100,
@@ -20,7 +19,7 @@ getgenv().WisHUBCarrotConfig = {
 	Speed = 0.1,
 
 	Sprinklers = {
-		["Super Sprinkler"] = false,
+		["Super Sprinkler"] = true,
 		["Common Sprinkler"] = false,
 		["Uncommon Sprinkler"] = false,
 		["Rare Sprinkler"] = false,
@@ -30,12 +29,24 @@ getgenv().WisHUBCarrotConfig = {
 
 getgenv().WisHUBCarrotDisableRollbackNextRun = false
 
+if not game:IsLoaded() then
+	game.Loaded:Wait()
+end
+
 local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+while not player do
+	task.wait()
+	player = Players.LocalPlayer
+end
+
+if not player.Character then
+	player.CharacterAdded:Wait()
+end
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService = game:GetService("TeleportService")
-
-local player = Players.LocalPlayer
-local remote = ReplicatedStorage.SharedModules.Packet.RemoteEvent
+local remote = ReplicatedStorage:WaitForChild("SharedModules", 9e9):WaitForChild("Packet", 9e9):WaitForChild("RemoteEvent", 9e9)
 
 local Env = (type(getgenv) == "function" and getgenv()) or _G
 Env.WisHUBCarrotRunId = (tonumber(Env.WisHUBCarrotRunId) or 0) + 1
@@ -649,16 +660,16 @@ local PLANT_ANCHOR_RANDOM_FACTOR = 0.44
 local PLANT_SPRINKLER_ATTEMPTS = 24
 local PLANT_POSITION_CACHE_SECONDS = 2
 local PLANT_NEAREST_SAMPLE_LIMIT = 70
-local PLANT_SPRINKLER_MIN_RADIUS_FACTOR = 0.035
+local PLANT_SPRINKLER_MIN_RADIUS_FACTOR = 0.02
 local PLANT_SPRINKLER_MAX_RADIUS_FACTOR = 0.52
-local PLANT_NEAR_SPRINKLER_MIN_DISTANCE = 1.25
-local PLANT_NEAR_SPRINKLER_MAX_DISTANCE = 5.5
-local PLANT_SPRINKLER_MAX_DISTANCE_CAP = 26
-local PLANT_SPRINKLER_EDGE_MARGIN = 12
-local PLANT_DEFAULT_SPACING = 5.5
+local PLANT_NEAR_SPRINKLER_MIN_DISTANCE = 0.5
+local PLANT_NEAR_SPRINKLER_MAX_DISTANCE = 4.0
+local PLANT_SPRINKLER_MAX_DISTANCE_CAP = 15
+local PLANT_SPRINKLER_EDGE_MARGIN = 2
+local PLANT_DEFAULT_SPACING = 3.5
 local PLANT_SEED_SPACING = {
-	Carrot = 5.5,
-	Mega = 5.5,
+	Carrot = 3.5,
+	Mega = 3.5,
 }
 
 local sprinklerRuntime = {
@@ -1709,7 +1720,7 @@ local function disableRollbackOnce(force)
 	if not force and not rollbackActive then
 		return false
 	end
-	local packetRemote = ReplicatedStorage.SharedModules.Packet.RemoteEvent
+	local packetRemote = remote or ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"):WaitForChild("RemoteEvent")
 	if not packetRemote then
 		return false
 	end
@@ -1758,41 +1769,44 @@ end
 
 local function carrotMatchesWantedKg(obj, targetKg)
 	if not obj or not isCarrotObject(obj) then
-		return false
-	end
-	if targetKg <= 0 then
-		return true
+		return false, 0
 	end
 	local kg = getObjectKg(obj)
-	return kg > 0 and kg >= targetKg
+	if targetKg <= 0 then
+		return true, kg
+	end
+	return (kg > 0 and kg >= targetKg), kg
 end
 
 local function gardenHasWantedCarrot()
 	local plot = getMyPlot()
 	local plants = plot and plot:FindFirstChild("Plants")
 	if not plants then
-		return false
+		return false, 0
 	end
 
 	local targetKg = tonumber(state.harvestKg) or 0
 	local checked = 0
 	for _, plant in ipairs(plants:GetChildren()) do
-		if carrotMatchesWantedKg(plant, targetKg) then
-			return true, getObjectKg(plant)
+		local match, kg = carrotMatchesWantedKg(plant, targetKg)
+		if match then
+			return true, kg
 		end
 
 		local fruits = plant:FindFirstChild("Fruits")
 		if fruits then
 			for _, fruit in ipairs(fruits:GetChildren()) do
-				if carrotMatchesWantedKg(fruit, targetKg) then
-					return true, getObjectKg(fruit)
+				local fmatch, fkg = carrotMatchesWantedKg(fruit, targetKg)
+				if fmatch then
+					return true, fkg
 				end
 			end
 		end
 
 		for _, obj in ipairs(plant:GetDescendants()) do
-			if carrotMatchesWantedKg(obj, targetKg) then
-				return true, getObjectKg(obj)
+			local omatch, okg = carrotMatchesWantedKg(obj, targetKg)
+			if omatch then
+				return true, okg
 			end
 			checked += 1
 			if checked % 150 == 0 then
@@ -1801,11 +1815,15 @@ local function gardenHasWantedCarrot()
 		end
 	end
 
-	return false
+	return false, 0
 end
 
 local function rejoinGame()
-	TeleportService:Teleport(game.PlaceId, player)
+	if #game.JobId > 0 then
+		TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
+	else
+		TeleportService:Teleport(game.PlaceId, player)
+	end
 end
 
 local function queueRollbackOffNextRun()
@@ -1887,6 +1905,27 @@ local function startLoadingStuckRelogWatchdog()
 	end)
 end
 
+local function sendDiscordWebhook(foundKg)
+	local url = "https://discord.com/api/webhooks/1489342206853513269/QPKARC7IelRlcRA-lQr33I4obZMqcXJh6QxpJKVGMFyb09qZfwkb3zyDQBiDZQ5mZLWE"
+	local data = {
+		["content"] = string.format("🎉 **Harvester Alert!** 🎉\nBerhasil menemukan target Carrot seberat **%.2f Kg**! Rollback telah dimatikan dan player di-kick.", foundKg or 0),
+		["username"] = "Carrot Notifier"
+	}
+	local req = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+	if req then
+		pcall(function()
+			req({
+				Url = url,
+				Method = "POST",
+				Headers = {
+					["Content-Type"] = "application/json"
+				},
+				Body = game:GetService("HttpService"):JSONEncode(data)
+			})
+		end)
+	end
+end
+
 local function startRollbackRejoinMonitor()
 	if not cfgBool("AutoRejoin", false) then
 		return
@@ -1896,9 +1935,14 @@ local function startRollbackRejoinMonitor()
 		task.wait(cfgNumber("RejoinDelay", 8, 0))
 		while isCurrentRun() and cfgBool("AutoRejoin", false) do
 			local seedName = getRejoinSeedName()
-			if isSeedInventoryEmpty(seedName) then
-				if gardenHasWantedCarrot() then
+			local noSprinklers = #getPlacedSprinklers() == 0
+			if isSeedInventoryEmpty(seedName) or noSprinklers then
+				local hasWanted, foundKg = gardenHasWantedCarrot()
+				if hasWanted then
 					disableRollbackOnce()
+					sendDiscordWebhook(foundKg)
+					task.wait(1)
+					player:Kick(string.format("Berhasil menemukan target Carrot seberat %.2f Kg! Rollback dimatikan.", foundKg or 0))
 					return
 				end
 				rejoinGame()
@@ -1918,44 +1962,31 @@ local function applyNoUiConfig()
 	state.farmSpeed = cfgNumber("Speed", state.farmSpeed, 0.1, 1)
 	state.selectedPlantSeed = cfgString("PlantSeed", state.selectedPlantSeed)
 	state.selectedSprinklers = cfgSelectedSprinklers()
-	state.autoKick = cfgBool("AutoKick", true)
 end
 
-local function startTargetMonitor()
-	safeSpawn("target-monitor", function()
-		while isCurrentRun() do
-			local targetKg = tonumber(state.harvestKg) or 0
-			
-			if targetKg > 0 then
-				local hasTarget, foundKg = gardenHasWantedCarrot() 
-				
-				if hasTarget then
-					-- 1. Matikan SEMUA otomatisasi agar script berhenti beraktivitas
-					state.autoPlantCarrot = false 
-					state.autoHarvestCarrot = false
-					state.autoSellAll = false
-					
-					-- 2. Batalkan rollback (tambahkan parameter 'true' untuk force)
-					disableRollbackOnce(true) 
-					
-					-- 3. Perpanjang jeda menjadi 6 detik agar server benar-benar menyimpan data tanaman
-					task.wait(9) 
-					
-					-- 4. Eksekusi Kick
-					if state.autoKick then
-						local kgFormat = string.format("%.2f", foundKg)
-						player:Kick("Congrast you got " .. kgFormat .. " kg carrot in your garden")
-					end
-					
-					break 
-				end
-			end
-			
-			task.wait(2)
+local function setupAutoReconnect()
+	local GuiService = game:GetService("GuiService")
+	local TeleportService = game:GetService("TeleportService")
+	
+	GuiService.ErrorMessageChanged:Connect(function(errorMessage)
+		-- Jangan rejoin jika di-kick karena berhasil menemukan target
+		if type(errorMessage) == "string" and errorMessage:lower():find("berhasil menemukan target") then
+			return
 		end
+		
+		task.wait(3) -- Wait a bit to ensure session lock clears before re-rejoining
+		pcall(function()
+			if #game.JobId > 0 then
+				TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
+			else
+				TeleportService:Teleport(game.PlaceId, player)
+			end
+		end)
 	end)
 end
+
 local function boot()
+	setupAutoReconnect()
 	applyNoUiConfig()
 	startLoadingStuckRelogWatchdog()
 
@@ -1980,8 +2011,6 @@ local function boot()
 		resetPlantSetup()
 		startPlantCarrot()
 	end
-
-	startTargetMonitor()
 end
 
 local ok, err = xpcall(boot, function(message)
