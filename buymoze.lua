@@ -170,7 +170,7 @@ local function startAutoBuy()
     print("[7/7] Mengaktifkan Auto Buy...")
     
     local SEEDS = {
-        "Carrot", "Coconut", "Moon Bloom", "Rocket Pop",
+        "Carrot", "Coconut", "Moon Bloom",
         "Hypno Bloom", "Dragon's Breath", "Venom Spitter", "Venus Fly Trap"
     } 
     
