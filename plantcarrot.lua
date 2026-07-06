@@ -24,7 +24,7 @@ getgenv().WisHUBCarrotConfig = {
 		["Common Sprinkler"] = true,
 		["Uncommon Sprinkler"] = true,
 		["Rare Sprinkler"] = true,
-		["Legendary Sprinkler"] = true,
+		["Legendary Sprinkler"] = false,
 	},
 }
 
