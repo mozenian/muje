@@ -1,9 +1,9 @@
 getgenv().WisHUBCarrotConfig = {
 	AutoPlant = true,
-	PlantSeed = "Mega",
+	PlantSeed = "Carrot",
 
 	AutoHarvest = true,
-	HarvestBelowKg = 100,
+	HarvestBelowKg = 50,
 
 	AutoSell = true,
 	AutoSprinkler = true,
@@ -160,7 +160,6 @@ local function safeSpawn(label, fn)
 		end
 	end)
 end
-
 
 local packetCache = {}
 local packetNames = {
@@ -405,13 +404,11 @@ local function getObjectKg(obj)
 		return 0
 	end
 
-	-- Try direct weight attributes first
 	local direct = readNumber(obj, { "Weight", "WeightKG", "KG" }, true)
 	if direct then
 		return direct
 	end
 
-	-- Try SizeMulti attributes
 	local sizeMulti = readNumber(obj, { "SizeMulti", "SizeMultiplier" }, true)
 	if sizeMulti then
 		local fruitName = getObjectName(obj)
@@ -422,16 +419,12 @@ local function getObjectKg(obj)
 		return sizeMulti
 	end
 
-	-- For single harvest plants (like Carrot), calculate weight from Part2.Size.Y
-	-- Formula: weight = Part2.Size.Y * 0.534
 	local plantName = getObjectName(obj)
 	if plantName and plantName:lower():find("carrot") then
-		-- Find Part2 (main carrot body)
 		local part2 = obj:FindFirstChild("2")
 		if part2 and part2:IsA("BasePart") then
 			return part2.Size.Y * CARROT_WEIGHT_MULTIPLIER
 		end
-		-- Try finding in descendants
 		for _, child in ipairs(obj:GetDescendants()) do
 			if child:IsA("BasePart") and child.Name == "2" then
 				return child.Size.Y * CARROT_WEIGHT_MULTIPLIER
@@ -534,6 +527,29 @@ local function findSeedTool(seedName)
 			end
 		end
 	end
+end
+
+local function equipTool(tool)
+	local char = getCharacter()
+	local hum = findChildOfClass(char, "Humanoid")
+	if not char or not hum or not tool then
+		return false
+	end
+	if tool.Parent == char then
+		return true
+	end
+
+	if type(hum.EquipTool) == "function" then
+		pcall(function()
+			hum:EquipTool(tool)
+		end)
+	else
+		pcall(function()
+			tool.Parent = char
+		end)
+	end
+	task.wait()
+	return tool.Parent == char
 end
 
 local function equipSeed(seedName)
@@ -1059,29 +1075,6 @@ local function findSprinklerTool(sprinklerName)
 	end
 end
 
-local function equipTool(tool)
-	local char = getCharacter()
-	local hum = findChildOfClass(char, "Humanoid")
-	if not char or not hum or not tool then
-		return false
-	end
-	if tool.Parent == char then
-		return true
-	end
-
-	if type(hum.EquipTool) == "function" then
-		pcall(function()
-			hum:EquipTool(tool)
-		end)
-	else
-		pcall(function()
-			tool.Parent = char
-		end)
-	end
-	task.wait()
-	return tool.Parent == char
-end
-
 local function firePlaceSprinkler(tool, sprinklerName, position)
 	local id = getPacketIdByNames(packetNames.placesprinkler)
 	local plotId = getPlotId()
@@ -1445,48 +1438,134 @@ local function getSelectedPlantSeed()
 	return "Carrot"
 end
 
-local function plantCarrotsOnce()
-	if not setupSprinklersForPlant() then
-		return 0
-	end
+-- ==============================================================================
+-- LOGIKA PENYIRAMAN: "WAJIB EQUIP" & "MENYEBAR KE TITIK BIBIT BARU DITANAM"
+-- ==============================================================================
+local sessionPlantedCount = 0
+local sessionPlantedPositions = {}
+local lastWaterTime = 0
 
-	local seedName = getSelectedPlantSeed()
-	local seedTool = equipSeed(seedName)
-	if not seedTool then
-		return 0
-	end
+-- Fungsi Siram (Satu titik)
+local function fireSuperWateringCan()
+    local toolName = "Super Watering Can"
+    
+    -- 1. CARI ALAT DI BACKPACK ATAU TANGAN
+    local tool = nil
+    for _, item in ipairs(player.Backpack:GetChildren()) do
+        if item.Name == toolName then tool = item break end
+    end
+    if not tool and player.Character then -- Cek kalau sudah di tangan
+        tool = player.Character:FindFirstChild(toolName)
+    end
+    
+    if not tool then
+        print("Alat tidak ditemukan di inventory!")
+        return false 
+    end
 
-	local fired = 0
-	local farmSpeed = math.max(0.1, math.min(1, tonumber(state.farmSpeed) or 0.1))
-	local plantBurst = math.max(1, math.floor(1 + (1.1 - farmSpeed) * 2))
-	local plantPositions = getExistingPlantPositions()
+    -- 2. PAKSA EQUIP ALAT (Ini yang sering bikin server deteksi siram)
+    if not equipTool(tool) then
+        print("Gagal equip alat!")
+        return false
+    end
+    task.wait(0.3) -- Tunggu sebentar agar alat benar-benar di tangan
 
-	for _ = 1, plantBurst do
-		if not state.autoPlantCarrot then
-			break
-		end
-		if not seedTool.Parent then
-			seedTool = findSeedTool(seedName)
-			if not seedTool then
-				break
-			end
-		end
+    -- 3. Deteksi Plot & Target
+    local gardens = workspace:FindFirstChild("Gardens")
+    local myPlot = nil
+    for _, plot in ipairs(gardens:GetChildren()) do
+        if plot:GetAttribute("Owner") == player.Name then
+            myPlot = plot
+            break
+        end
+    end
+    if not myPlot then return false end
+    
+    local visual = myPlot:FindFirstChild("Visual")
+    local targetObj = visual and visual:FindFirstChild("PlantAreaColumn1")
+    if not targetObj then return false end
 
-		-- Get random position around sprinkler (no teleport)
-		local position = getSelectedPlantPosition(seedName, plantPositions)
-		if not position then
-			break
-		end
-		if firePlant(seedName, position, seedTool) then
-			fired += 1
-			table.insert(plantPositions, position)
-			turboYield(80)
-		end
-	end
-
-	return fired
+    -- 4. EKSEKUSI SIRAM
+    local id = 67
+    local plotCF = targetObj.CFrame
+    
+    for i = 0, 4 do
+        local localOffset = Vector3.new((i - 2) * 7, 2, 0) 
+        local worldPos = plotCF:PointToWorldSpace(localOffset)
+        
+        local buf = buffer.create(15 + #toolName)
+        buffer.writeu16(buf, 0, id)
+        buffer.writef32(buf, 2, worldPos.X)
+        buffer.writef32(buf, 6, worldPos.Y)
+        buffer.writef32(buf, 10, worldPos.Z)
+        buffer.writeu8(buf, 14, #toolName)
+        buffer.writestring(buf, 15, toolName)
+        
+        -- KITA KIRIM TOOL KE SERVER
+        remote:FireServer(buf, { tool }) 
+        task.wait(0.15)
+    end
+    
+    print("Berhasil mengirim perintah siram!")
+    return true
 end
 
+local lastMaintenanceTime = 0
+-- Fungsi Penanaman yang sudah diperbaiki strukturnya
+local function plantCarrotsOnce()
+    -- 1. PEMELIHARAAN (Sprinkler & Siram)
+    -- Kita hanya cek sprinkler & siram jika sudah 5 detik berlalu ATAU saat baru mulai
+    if (os.clock() - lastMaintenanceTime) > 5 then
+        setupSprinklersForPlant() -- Cek sprinkler
+        
+        if sessionPlantedCount == 0 or sessionPlantedCount >= 800 then 
+            if fireSuperWateringCan() then
+                sessionPlantedCount = 0
+                task.wait(0.2)
+            end
+        end
+        lastMaintenanceTime = os.clock()
+    end
+
+    -- 2. PENANAMAN (Dibuat lebih agresif)
+    local seedName = getSelectedPlantSeed()
+    local seedTool = equipSeed(seedName)
+    if not seedTool then return 0 end
+
+    local fired = 0
+    local plantBurst = 5 -- Ditingkatkan dari 3 ke 5 biar lebih cepat
+    local plantPositions = getExistingPlantPositions()
+
+    for i = 1, plantBurst do
+        if not state.autoPlantCarrot then break end
+        
+        local position = getSelectedPlantPosition(seedName, plantPositions)
+        if position and firePlant(seedName, position, seedTool) then
+            fired += 1
+            sessionPlantedCount += 1
+            table.insert(plantPositions, position)
+        end
+        -- Kurangi turboYield agar lebih cepat (dari 80 ke 20)
+        turboYield(15) 
+    end
+    return fired
+end
+-- ========================================================
+local isLocked = false
+
+local function lockPosition(enabled)
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    if enabled then
+        isLocked = true
+        hrp.Anchored = true 
+    else
+        isLocked = false
+        hrp.Anchored = false
+    end
+end
 local function startPlantCarrot()
 	safeSpawn("plant", function()
 		while isCurrentRun() and state.autoPlantCarrot do
@@ -1978,40 +2057,59 @@ local function setupAutoReconnect()
 	end)
 end
 
+local function teleportToPlot()
+    local gardens = workspace:FindFirstChild("Gardens")
+    if gardens then
+        for _, plot in ipairs(gardens:GetChildren()) do
+            if plot:GetAttribute("Owner") == player.Name then
+                local visual = plot:FindFirstChild("Visual")
+                local target = visual and visual:GetChildren()[69] and visual:GetChildren()[69]:FindFirstChild("Part")
+                if target and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                    player.Character.HumanoidRootPart.CFrame = target.CFrame
+                end
+                break
+            end
+        end
+    end
+end
+
 local function boot()
-	setupAutoReconnect()
-	applyNoUiConfig()
-	startLoadingStuckRelogWatchdog()
+    setupAutoReconnect()
+    applyNoUiConfig()
+    startLoadingStuckRelogWatchdog()
 
-	if state.hideNonCarrotVisuals then
-		setHideNonCarrotVisuals(true)
-	end
+    if state.hideNonCarrotVisuals then
+        setHideNonCarrotVisuals(true)
+    end
 
-	if cfgBool("Rollback", false) then
-		fireRollbackOnce()
-	end
-	startRollbackRejoinMonitor()
+    if cfgBool("Rollback", false) then
+        fireRollbackOnce()
+    end
+    startRollbackRejoinMonitor()
 
-	if state.autoSellAll then
-		startSellAll()
-	end
+    if state.autoSellAll then
+        startSellAll()
+    end
 
-	if state.autoHarvestCarrot then
-		startHarvestCarrot()
-	end
+    if state.autoHarvestCarrot then
+        startHarvestCarrot()
+    end
 
-	if state.autoPlantCarrot then
-		resetPlantSetup()
-		startPlantCarrot()
-	end
+    if state.autoPlantCarrot then
+        resetPlantSetup()
+        teleportToPlot() -- Ini sekarang sudah di atas, aman!
+        task.wait(3)
+        startPlantCarrot()
+    end
 end
 
 local ok, err = xpcall(boot, function(message)
-	if type(debug) == "table" and type(debug.traceback) == "function" then
-		return debug.traceback(message, 2)
-	end
-	return message
+    if type(debug) == "table" and type(debug.traceback) == "function" then
+        return debug.traceback(message, 2)
+    end
+    return message
 end)
+
 if not ok then
-	warn("[WisHUB Carrot Core] " .. tostring(err))
+    warn("[WisHUB Carrot Core] " .. tostring(err))
 end
