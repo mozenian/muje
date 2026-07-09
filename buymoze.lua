@@ -175,7 +175,7 @@ local function startAutoBuy()
     } 
     
     local GEARS = {
-        "Legendary Sprinkler", "Super Sprinkler", "Super Watering Can"
+        "Trowel", "Legendary Sprinkler", "Super Sprinkler", "Super Watering Can"
     }
 
     task.spawn(function()
