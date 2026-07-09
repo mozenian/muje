@@ -445,51 +445,36 @@ local function getMyPlot()
 	return nil
 end
 
--- Disable Effects
+-- Remove Shadows from Lighting
+local Lighting = game:GetService("Lighting")
+Lighting.GlobalShadows = false
+Lighting.ShadowColor = Color3.new(0, 0, 0)
+Lighting.OutdoorAmbient = Color3.new(0.5, 0.5, 0.5)
+
+-- Disable ALL Effects (Aggressive Cleanup for Anti-Lag)
 local function disableEffectsAndAnimations(desc)
+	-- Destroy ALL Scripts (paling penting untuk anti-lag)
+	if desc:IsA("Script") or desc:IsA("LocalScript") then
+		pcall(function() desc:Destroy() end)
+		return
+	end
+
+	-- Destroy Animation Controllers + Animations
 	if desc:IsA("AnimationController") or desc:IsA("Animator") then
 		pcall(function() desc:Destroy() end)
 		return
 	end
 
-	if desc:IsA("Script") or desc:IsA("LocalScript") then
-		pcall(function()
-			desc.Disabled = true
-			desc:Destroy()
-		end)
-		return
-	end
-
-	if desc:IsA("ParticleEmitter") then
-		desc.Enabled = false
-		return
-	end
-
-	if desc:IsA("BillboardGui") or desc:IsA("SurfaceGui") then
-		desc.Enabled = false
-		return
-	end
-
-	if desc:IsA("Sound") then
-		pcall(function()
-			desc:Stop()
-			desc:Destroy()
-		end)
-		return
-	end
-
-	if desc:IsA("Decal") or desc:IsA("Texture") then
+	-- Destroy Animation Instances
+	if desc:IsA("Animation") then
 		pcall(function() desc:Destroy() end)
 		return
 	end
 
-	if desc:IsA("BasePart") then
-		desc.Anchored = true
-		for _, child in ipairs(desc:GetChildren()) do
-			if child:IsA("Motor6D") or child:IsA("Weld") or child:IsA("WeldConstraint") then
-				pcall(function() child:Destroy() end)
-			end
-		end
+	-- Disable ALL Particles
+	if desc:IsA("ParticleEmitter") then
+		desc.Enabled = false
+		return
 	end
 
 	if desc:IsA("Trail") then
@@ -497,7 +482,7 @@ local function disableEffectsAndAnimations(desc)
 		return
 	end
 
-	if desc:IsA("Light") or desc:IsA("PointLight") or desc:IsA("SpotLight") or desc:IsA("SurfaceLight") then
+	if desc:IsA("Fire") or desc:IsA("Sparkles") or desc:IsA("Smoke") then
 		desc.Enabled = false
 		return
 	end
@@ -507,26 +492,122 @@ local function disableEffectsAndAnimations(desc)
 		return
 	end
 
-	if desc:IsA("Fire") or desc:IsA("Sparkles") or desc:IsA("Smoke") or desc:IsA("Blur") then
+	if desc:IsA("Projectile") or desc:IsA("AlignPosition") then
+		pcall(function() desc:Destroy() end)
+		return
+	end
+
+	-- Disable UI
+	if desc:IsA("BillboardGui") or desc:IsA("SurfaceGui") then
 		desc.Enabled = false
+		return
+	end
+
+	-- Destroy Sounds
+	if desc:IsA("Sound") then
+		pcall(function() desc:Destroy() end)
+		return
+	end
+
+	-- Destroy Decals & Textures (uses GPU)
+	if desc:IsA("Decal") then
+		pcall(function() desc:Destroy() end)
+		return
+	end
+
+	-- Disable Lights
+	if desc:IsA("Light") or desc:IsA("PointLight") or desc:IsA("SpotLight") or desc:IsA("SurfaceLight") then
+		desc.Enabled = false
+		return
+	end
+
+	-- For MeshParts - Anchor and remove joints
+	if desc:IsA("MeshPart") then
+		desc.Anchored = true
+		pcall(function() desc.CastShadow = false end) -- Remove shadow
+
+		-- Remove Decals from MeshPart
+		for _, child in ipairs(desc:GetChildren()) do
+			if child:IsA("Decal") then
+				pcall(function() child:Destroy() end)
+			end
+		end
+
+		-- Remove ALL joints and constraints
+		for _, child in ipairs(desc:GetChildren()) do
+			if child:IsA("Motor6D") or child:IsA("Weld") or child:IsA("WeldConstraint")
+				or child:IsA("RopeConstraint") or child:IsA("ChainConstraint")
+				or child:IsA("Attachment") or child:IsA("AlignOrientation")
+				or child:IsA("BodyMovers") then
+				pcall(function() child:Destroy() end)
+			end
+		end
+		return
+	end
+
+	-- For Parts - Just anchor and remove joints (no TextureId)
+	if desc:IsA("Part") then
+		desc.Anchored = true
+		pcall(function() desc.CastShadow = false end) -- Remove shadow
+
+		-- Remove Decals from Part
+		for _, child in ipairs(desc:GetChildren()) do
+			if child:IsA("Decal") then
+				pcall(function() child:Destroy() end)
+			end
+		end
+
+		-- Remove joints
+		for _, child in ipairs(desc:GetChildren()) do
+			if child:IsA("Motor6D") or child:IsA("Weld") or child:IsA("WeldConstraint")
+				or child:IsA("RopeConstraint") or child:IsA("ChainConstraint")
+				or child:IsA("Attachment") or child:IsA("AlignOrientation")
+				or child:IsA("BodyMovers") then
+				pcall(function() child:Destroy() end)
+			end
+		end
+		return
+	end
+
+	-- Destroy Other Potential Lag Sources
+	if desc:IsA("Cloth") or desc:IsA("SkinningInfo") then
+		pcall(function() desc:Destroy() end)
 		return
 	end
 end
 
--- Hide Plants + No Clip
+-- Hide Plants + No Clip + Destroy Textures
 local originalTransparencies = setmetatable({}, {__mode = "k"})
 local originalCanCollides = setmetatable({}, {__mode = "k"})
 
 local function hideDescendant(desc)
 	if not desc:IsA("BasePart") then return end
+
+	-- Save original values
 	if not originalTransparencies[desc] then
 		originalTransparencies[desc] = desc.Transparency
 	end
 	if not originalCanCollides[desc] then
 		originalCanCollides[desc] = desc.CanCollide
 	end
+
+	-- Set to invisible and non-solid
 	desc.Transparency = 1
 	desc.CanCollide = false
+
+	-- REMOVE TEXTURE from MeshParts (makes them plain colored)
+	if desc:IsA("MeshPart") then
+		pcall(function() desc.TextureId = "" end)
+		pcall(function() desc.Color = Color3.new(0.5, 0.5, 0.5) end) -- Gray color
+		pcall(function() desc.CastShadow = false end) -- Remove shadow
+	end
+
+	-- DESTROY all Decals on this part
+	for _, child in ipairs(desc:GetChildren()) do
+		if child:IsA("Decal") then
+			pcall(function() child:Destroy() end)
+		end
+	end
 end
 
 local function restoreDescendant(desc)
@@ -539,6 +620,7 @@ function updatePlantsVisibility()
 	local plot = getMyPlot()
 	if not plot then return end
 
+	-- Process Plants
 	local plants = plot:FindFirstChild("Plants")
 	if plants then
 		for _, desc in ipairs(plants:GetDescendants()) do
@@ -549,9 +631,25 @@ function updatePlantsVisibility()
 			end
 		end
 	end
+
+	-- Process Props
+	local props = plot:FindFirstChild("Props")
+	if props then
+		for _, desc in ipairs(props:GetDescendants()) do
+			if plantsHidden then
+				hideDescendant(desc)
+			else
+				restoreDescendant(desc)
+			end
+		end
+	end
 end
 
 local function setupPlotConnection(plot)
+	local myPlot = getMyPlot()
+	if not myPlot or plot ~= myPlot then return end
+
+	-- Setup Plants
 	local plants = plot:FindFirstChild("Plants")
 	if plants then
 		for _, desc in ipairs(plants:GetDescendants()) do
@@ -569,15 +667,31 @@ local function setupPlotConnection(plot)
 			end
 		end)
 	end
+
+	-- Setup Props
+	local props = plot:FindFirstChild("Props")
+	if props then
+		for _, desc in ipairs(props:GetDescendants()) do
+			disableEffectsAndAnimations(desc)
+			if plantsHidden then
+				hideDescendant(desc)
+			end
+		end
+
+		props.DescendantAdded:Connect(function(desc)
+			task.wait()
+			disableEffectsAndAnimations(desc)
+			if plantsHidden then
+				hideDescendant(desc)
+			end
+		end)
+	end
 end
 
 local Gardens = workspace:FindFirstChild("Gardens")
 if Gardens then
 	for _, plot in ipairs(Gardens:GetChildren()) do
-		local plants = plot:FindFirstChild("Plants")
-		if plants then
-			setupPlotConnection(plot)
-		end
+		setupPlotConnection(plot)
 
 		-- Setup Sprinklers
 		local sprinklers = plot:FindFirstChild("Sprinklers")
@@ -593,10 +707,7 @@ if Gardens then
 	end
 
 	Gardens.ChildAdded:Connect(function(plot)
-		local plants = plot:WaitForChild("Plants", 5)
-		if plants then
-			setupPlotConnection(plot)
-		end
+		setupPlotConnection(plot)
 
 		-- Setup Sprinklers
 		local sprinklers = plot:WaitForChild("Sprinklers", 5)
