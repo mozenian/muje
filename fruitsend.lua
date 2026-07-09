@@ -1,17 +1,28 @@
+-- Wait until the game is fully loaded to prevent race conditions
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
 -- Game Verification
 if game.PlaceId ~= 97598239454123 then
-    warn("Script ini hanya untuk Grow a Garden 2!")
+    warn("This script is only for Grow a Garden 2!")
     return
 end
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Hooking ke modul internal game
-local Networking = require(ReplicatedStorage.SharedModules.Networking)
-local PlayerStateClient = require(ReplicatedStorage.ClientModules.PlayerStateClient)
+-- Ensure PlayerGui exists
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
+if not PlayerGui then return end
+
+-- Safely hooking into internal game modules using WaitForChild
+local SharedModules = ReplicatedStorage:WaitForChild("SharedModules", 10)
+local ClientModules = ReplicatedStorage:WaitForChild("ClientModules", 10)
+
+local Networking = require(SharedModules:WaitForChild("Networking", 10))
+local PlayerStateClient = require(ClientModules:WaitForChild("PlayerStateClient", 10))
 
 local GUI_NAME = "AdvancedMultiMailSender"
 if PlayerGui:FindFirstChild(GUI_NAME) then
@@ -27,7 +38,7 @@ local tabs = {"All", "Fruits", "Seeds", "Gears", "Pets"}
 local tabButtons = {}
 
 -- ===========================
--- MEMBUAT TAMPILAN GUI
+-- CREATING THE GUI
 -- ===========================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = GUI_NAME
@@ -78,7 +89,7 @@ TargetBox.Size = UDim2.new(0.94, 0, 0, 40)
 TargetBox.Position = UDim2.new(0.03, 0, 0, 60)
 TargetBox.BackgroundColor3 = Color3.fromRGB(18, 19, 23)
 TargetBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-TargetBox.PlaceholderText = "Username Tujuan..."
+TargetBox.PlaceholderText = "Target Username..."
 TargetBox.Text = ""
 TargetBox.Font = Enum.Font.Gotham
 TargetBox.TextSize = 14
@@ -86,13 +97,13 @@ TargetBox.ClearTextOnFocus = false
 TargetBox.Parent = MainFrame
 Instance.new("UICorner", TargetBox).CornerRadius = UDim.new(0, 6)
 
--- Input Jumlah (Spesifik)
+-- Specific Amount Input
 local AmountBox = Instance.new("TextBox")
 AmountBox.Size = UDim2.new(0.94, 0, 0, 40)
 AmountBox.Position = UDim2.new(0.03, 0, 0, 110)
 AmountBox.BackgroundColor3 = Color3.fromRGB(18, 19, 23)
 AmountBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-AmountBox.PlaceholderText = "Jumlah Kirim per Item (Kosong = Kirim Semua)"
+AmountBox.PlaceholderText = "Amount per Item (Empty = Send All)"
 AmountBox.Text = ""
 AmountBox.Font = Enum.Font.Gotham
 AmountBox.TextSize = 14
@@ -127,8 +138,8 @@ local function createControlBtn(text, color, parent)
 end
 
 local RefreshBtn = createControlBtn("Refresh", Color3.fromRGB(65, 68, 88), ControlFrame)
-local SelectAllBtn = createControlBtn("Pilih Semua", Color3.fromRGB(56, 128, 70), ControlFrame)
-local ClearBtn = createControlBtn("Batal Pilih", Color3.fromRGB(160, 60, 60), ControlFrame)
+local SelectAllBtn = createControlBtn("Select All", Color3.fromRGB(56, 128, 70), ControlFrame)
+local ClearBtn = createControlBtn("Deselect All", Color3.fromRGB(160, 60, 60), ControlFrame)
 
 local TabFrame = Instance.new("Frame")
 TabFrame.Size = UDim2.new(0.94, 0, 0, 30)
@@ -172,7 +183,7 @@ SendBtn.Size = UDim2.new(0.94, 0, 0, 45)
 SendBtn.Position = UDim2.new(0.03, 0, 0, 435)
 SendBtn.BackgroundColor3 = Color3.fromRGB(56, 160, 85)
 SendBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-SendBtn.Text = "KIRIM ITEM TERPILIH"
+SendBtn.Text = "SEND SELECTED ITEMS"
 SendBtn.Font = Enum.Font.GothamBold
 SendBtn.TextSize = 15
 SendBtn.Parent = MainFrame
@@ -207,7 +218,7 @@ local function addLog(msg, color)
 end
 
 -- ===========================
--- LOGIKA UTAMA (UNIVERSAL SCANNER V6)
+-- MAIN LOGIC (UNIVERSAL SCANNER V6)
 -- ===========================
 
 local function renderList()
@@ -270,17 +281,17 @@ local function renderList()
     ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, count * 39)
 end
 
--- FUNGSI SCAN HYBRID: MENGGABUNGKAN BACKPACK DAN DATABASE
+-- HYBRID SCAN FUNCTION: COMBINING BACKPACK AND DATABASE
 local function scanInventory()
     availableItems = {}
     local validIds = {}
     local counts = {Fruits = 0, Pets = 0, Stacks = 0}
 
-    -- 1. SCAN BACKPACK (Fokus untuk Buah yang ada di tas fisik)
+    -- 1. SCAN BACKPACK (Focuses on Fruits physically in the bag)
     for _, item in pairs(LocalPlayer.Backpack:GetChildren()) do
         local uuid = item:GetAttribute("Id")
         if uuid then
-            -- Deteksi buah berdasarkan atribut
+            -- Detect fruit based on attributes
             local isFruit = item:GetAttribute("HarvestedFruit") == true or item:GetAttribute("Weight") ~= nil
             if isFruit and not validIds[uuid] then
                 table.insert(availableItems, {
@@ -297,13 +308,13 @@ local function scanInventory()
         end
     end
 
-    -- 2. SCAN DATABASE (Untuk Pets dan item Stackable seperti Seeds, Gears)
+    -- 2. SCAN DATABASE (For Pets and Stackable items like Seeds, Gears)
     local replica = PlayerStateClient:GetLocalReplica()
     if replica and replica.Data and replica.Data.Inventory then
         for cat, catData in pairs(replica.Data.Inventory) do
             if typeof(catData) == "table" then
                 
-                -- AMBIL PETS DARI DATABASE
+                -- FETCH PETS FROM DATABASE
                 if cat == "Pets" then
                     for itemKey, itemVal in pairs(catData) do
                         if typeof(itemVal) == "table" and itemVal.Equipped ~= true then
@@ -322,7 +333,7 @@ local function scanInventory()
                         end
                     end
                 
-                -- AMBIL BUAH DARI DATABASE (Sebagai cadangan jika tas gagal)
+                -- FETCH FRUITS FROM DATABASE (As backup if backpack check fails)
                 elseif cat == "HarvestedFruits" or cat == "Crops" then
                     for itemKey, itemVal in pairs(catData) do
                         if typeof(itemVal) == "table" then
@@ -345,7 +356,7 @@ local function scanInventory()
                         end
                     end
 
-                -- AMBIL STACKABLES DARI DATABASE (Seeds, Gears, Dll)
+                -- FETCH STACKABLES FROM DATABASE (Seeds, Gears, etc.)
                 else
                     for itemKey, count in pairs(catData) do
                         if typeof(count) == "number" and count > 0 then
@@ -372,16 +383,16 @@ local function scanInventory()
             end
         end
     else
-        addLog("Peringatan: Tidak bisa memuat PlayerState database.", Color3.fromRGB(255, 150, 100))
+        addLog("Warning: Could not load PlayerState database.", Color3.fromRGB(255, 150, 100))
     end
 
-    -- Membersihkan memori pilihan jika barang sudah tidak ada di tas
+    -- Clear selection memory if items are no longer in the inventory
     for id, _ in pairs(selectedItems) do
         if not validIds[id] then selectedItems[id] = nil end
     end
 
     renderList()
-    addLog(string.format("Scan Selesai: %d Buah, %d Pet, %d Stackable.", counts.Fruits, counts.Pets, counts.Stacks), Color3.fromRGB(100, 200, 255))
+    addLog(string.format("Scan Complete: %d Fruits, %d Pets, %d Stackables.", counts.Fruits, counts.Pets, counts.Stacks), Color3.fromRGB(100, 200, 255))
 end
 
 local function changeTab(tabName)
@@ -432,7 +443,7 @@ SendBtn.MouseButton1Click:Connect(function()
     local targetUser = TargetBox.Text:match("^%s*(.-)%s*$")
     
     if targetUser == "" then
-        addLog("ERROR: Masukkan Username tujuan!", Color3.fromRGB(255, 100, 100))
+        addLog("ERROR: Enter target Username!", Color3.fromRGB(255, 100, 100))
         return
     end
 
@@ -444,7 +455,7 @@ SendBtn.MouseButton1Click:Connect(function()
     end
 
     if #itemsToSend == 0 then
-        addLog("ERROR: Tidak ada item yang dipilih!", Color3.fromRGB(255, 100, 100))
+        addLog("ERROR: No items selected!", Color3.fromRGB(255, 100, 100))
         return
     end
 
@@ -452,24 +463,24 @@ SendBtn.MouseButton1Click:Connect(function()
     local globalAmount = tonumber(globalAmountText)
 
     isSending = true
-    SendBtn.Text = "MEMPROSES PENGIRIMAN..."
+    SendBtn.Text = "PROCESSING MAIL..."
     SendBtn.BackgroundColor3 = Color3.fromRGB(150, 130, 50)
     
     task.spawn(function()
-        addLog("Mencari ID untuk " .. targetUser .. "...", Color3.fromRGB(220, 220, 100))
+        addLog("Looking up ID for " .. targetUser .. "...", Color3.fromRGB(220, 220, 100))
         local ok, targetId, displayName = pcall(function()
             return Networking.Mailbox.LookupPlayer:Fire(targetUser)
         end)
 
         if not ok or not targetId or targetId <= 0 then
-            addLog("ERROR: Username tidak ditemukan/salah!", Color3.fromRGB(255, 100, 100))
+            addLog("ERROR: Username not found/invalid!", Color3.fromRGB(255, 100, 100))
             isSending = false
-            SendBtn.Text = "KIRIM ITEM TERPILIH"
+            SendBtn.Text = "SEND SELECTED ITEMS"
             SendBtn.BackgroundColor3 = Color3.fromRGB(56, 160, 85)
             return
         end
 
-        addLog("Penerima: " .. displayName .. ". Memulai...", Color3.fromRGB(100, 255, 100))
+        addLog("Recipient: " .. displayName .. ". Starting...", Color3.fromRGB(100, 255, 100))
 
         local batch = {}
         local batchNumber = 1
@@ -478,7 +489,7 @@ SendBtn.MouseButton1Click:Connect(function()
         for i, item in ipairs(itemsToSend) do
             local amountToSend = item.Count
             
-            -- Terapkan batas khusus jika user memasukkan angka, DAN item tersebut BUKAN item unik
+            -- Apply custom limit if user entered a number, AND the item is NOT a unique item
             if globalAmount and globalAmount > 0 then
                 if item.TabCategory ~= "Pets" and item.TabCategory ~= "Fruits" then
                     amountToSend = math.min(globalAmount, item.Count)
@@ -492,21 +503,21 @@ SendBtn.MouseButton1Click:Connect(function()
             })
 
             if #batch >= 20 or i == #itemsToSend then
-                addLog(string.format("Mengirim batch %d...", batchNumber), Color3.fromRGB(200, 200, 200))
+                addLog(string.format("Sending batch %d...", batchNumber), Color3.fromRGB(200, 200, 200))
                 
                 local success, result, errMsg = pcall(function()
                     return Networking.Mailbox.SendBatch:Fire(targetId, batch, "Multi-Select Item Send")
                 end)
 
                 if success and result then
-                    addLog(string.format("Batch %d BERHASIL!", batchNumber), Color3.fromRGB(100, 255, 100))
+                    addLog(string.format("Batch %d SUCCESS!", batchNumber), Color3.fromRGB(100, 255, 100))
                     for _, sentItem in ipairs(batch) do
                         selectedItems[sentItem.ItemKey] = nil
                         totalSentCount = totalSentCount + sentItem.Count
                     end
                 else
                     local errTxt = typeof(errMsg) == "string" and errMsg or tostring(result)
-                    addLog("GAGAL: " .. errTxt, Color3.fromRGB(255, 100, 100))
+                    addLog("FAILED: " .. errTxt, Color3.fromRGB(255, 100, 100))
                     for _, b in ipairs(batch) do
                         addLog(string.format("-> [Cat: %s | Key: %s | Qty: %d]", tostring(b.Category), tostring(b.ItemKey), b.Count), Color3.fromRGB(255, 150, 150))
                     end
@@ -519,9 +530,9 @@ SendBtn.MouseButton1Click:Connect(function()
             end
         end
 
-        addLog(string.format("PENGIRIMAN SELESAI! Total Item: %d", totalSentCount), Color3.fromRGB(100, 255, 255))
+        addLog(string.format("SENDING COMPLETE! Total Items: %d", totalSentCount), Color3.fromRGB(100, 255, 255))
         isSending = false
-        SendBtn.Text = "KIRIM ITEM TERPILIH"
+        SendBtn.Text = "SEND SELECTED ITEMS"
         SendBtn.BackgroundColor3 = Color3.fromRGB(56, 160, 85)
         
         scanInventory()
@@ -529,4 +540,4 @@ SendBtn.MouseButton1Click:Connect(function()
 end)
 
 scanInventory()
-addLog("Hybrid Scanner V6 siap digunakan.", Color3.fromRGB(100, 255, 100))
+addLog("Hybrid Scanner V6 ready to use.", Color3.fromRGB(100, 255, 100))
