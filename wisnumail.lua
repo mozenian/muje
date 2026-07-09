@@ -33,6 +33,7 @@ end
 local availableItems = {}
 local selectedItems = {} 
 local currentTab = "All"
+local searchQuery = "" 
 local isSending = false
 local tabs = {"All", "Fruits", "Seeds", "Gears", "Pets"}
 local tabButtons = {}
@@ -46,14 +47,33 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = PlayerGui
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 440, 0, 600)
-MainFrame.Position = UDim2.new(0.5, -220, 0.5, -300)
+MainFrame.Size = UDim2.new(0, 440, 0, 650)
+MainFrame.Position = UDim2.new(0.5, -220, 0.5, -325)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 26, 31)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
+
+-- ===========================
+-- NEW: AUTO-SCALE SYSTEM
+-- ===========================
+local uiScale = Instance.new("UIScale")
+uiScale.Parent = MainFrame
+
+local function updateScale()
+    local viewport = workspace.CurrentCamera.ViewportSize
+    -- Mengatur skala berdasarkan tinggi layar.
+    -- Skala dibatasi antara 0.5 (HP kecil) hingga 1.35 (PC layar besar)
+    local scale = math.clamp(viewport.Y / 850, 0.5, 1.35)
+    uiScale.Scale = scale
+end
+
+-- Update otomatis setiap kali ukuran layar berubah
+workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
+updateScale() -- Jalankan sekali saat GUI dibuat
+-- ===========================
 
 local TitleFrame = Instance.new("Frame")
 TitleFrame.Size = UDim2.new(1, 0, 0, 45)
@@ -97,7 +117,6 @@ TargetBox.ClearTextOnFocus = false
 TargetBox.Parent = MainFrame
 Instance.new("UICorner", TargetBox).CornerRadius = UDim.new(0, 6)
 
--- Specific Amount Input
 local AmountBox = Instance.new("TextBox")
 AmountBox.Size = UDim2.new(0.94, 0, 0, 40)
 AmountBox.Position = UDim2.new(0.03, 0, 0, 110)
@@ -111,9 +130,22 @@ AmountBox.ClearTextOnFocus = false
 AmountBox.Parent = MainFrame
 Instance.new("UICorner", AmountBox).CornerRadius = UDim.new(0, 6)
 
+local SearchBox = Instance.new("TextBox")
+SearchBox.Size = UDim2.new(0.94, 0, 0, 40)
+SearchBox.Position = UDim2.new(0.03, 0, 0, 160)
+SearchBox.BackgroundColor3 = Color3.fromRGB(22, 23, 29)
+SearchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+SearchBox.PlaceholderText = "🔍 Search Item Name..."
+SearchBox.Text = ""
+SearchBox.Font = Enum.Font.Gotham
+SearchBox.TextSize = 14
+SearchBox.ClearTextOnFocus = false
+SearchBox.Parent = MainFrame
+Instance.new("UICorner", SearchBox).CornerRadius = UDim.new(0, 6)
+
 local ControlFrame = Instance.new("Frame")
 ControlFrame.Size = UDim2.new(0.94, 0, 0, 35)
-ControlFrame.Position = UDim2.new(0.03, 0, 0, 160)
+ControlFrame.Position = UDim2.new(0.03, 0, 0, 210) 
 ControlFrame.BackgroundTransparency = 1
 ControlFrame.Parent = MainFrame
 
@@ -143,7 +175,7 @@ local ClearBtn = createControlBtn("Deselect All", Color3.fromRGB(160, 60, 60), C
 
 local TabFrame = Instance.new("Frame")
 TabFrame.Size = UDim2.new(0.94, 0, 0, 30)
-TabFrame.Position = UDim2.new(0.03, 0, 0, 205)
+TabFrame.Position = UDim2.new(0.03, 0, 0, 255) 
 TabFrame.BackgroundTransparency = 1
 TabFrame.Parent = MainFrame
 
@@ -167,7 +199,7 @@ end
 
 local ScrollFrame = Instance.new("ScrollingFrame")
 ScrollFrame.Size = UDim2.new(0.94, 0, 0, 180)
-ScrollFrame.Position = UDim2.new(0.03, 0, 0, 245)
+ScrollFrame.Position = UDim2.new(0.03, 0, 0, 295) 
 ScrollFrame.BackgroundColor3 = Color3.fromRGB(18, 19, 23)
 ScrollFrame.BorderSizePixel = 0
 ScrollFrame.ScrollBarThickness = 5
@@ -180,7 +212,7 @@ ScrollList.Parent = ScrollFrame
 
 local SendBtn = Instance.new("TextButton")
 SendBtn.Size = UDim2.new(0.94, 0, 0, 45)
-SendBtn.Position = UDim2.new(0.03, 0, 0, 435)
+SendBtn.Position = UDim2.new(0.03, 0, 0, 485) 
 SendBtn.BackgroundColor3 = Color3.fromRGB(56, 160, 85)
 SendBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 SendBtn.Text = "SEND SELECTED ITEMS"
@@ -191,7 +223,7 @@ Instance.new("UICorner", SendBtn).CornerRadius = UDim.new(0, 6)
 
 local LogScroll = Instance.new("ScrollingFrame")
 LogScroll.Size = UDim2.new(0.94, 0, 0, 95)
-LogScroll.Position = UDim2.new(0.03, 0, 0, 490)
+LogScroll.Position = UDim2.new(0.03, 0, 0, 540) 
 LogScroll.BackgroundColor3 = Color3.fromRGB(12, 13, 16)
 LogScroll.BorderSizePixel = 0
 LogScroll.ScrollBarThickness = 3
@@ -218,7 +250,7 @@ local function addLog(msg, color)
 end
 
 -- ===========================
--- MAIN LOGIC (UNIVERSAL SCANNER V6)
+-- MAIN LOGIC
 -- ===========================
 
 local function renderList()
@@ -228,7 +260,10 @@ local function renderList()
 
     local count = 0
     for _, item in ipairs(availableItems) do
-        if currentTab == "All" or item.TabCategory == currentTab then
+        local matchesTab = (currentTab == "All" or item.TabCategory == currentTab)
+        local matchesSearch = (searchQuery == "" or string.find(string.lower(item.Name), searchQuery))
+
+        if matchesTab and matchesSearch then
             local Row = Instance.new("Frame")
             Row.Size = UDim2.new(1, -8, 0, 34)
             Row.BackgroundColor3 = selectedItems[item.Id] and Color3.fromRGB(45, 48, 65) or Color3.fromRGB(33, 34, 44)
@@ -281,17 +316,19 @@ local function renderList()
     ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, count * 39)
 end
 
--- HYBRID SCAN FUNCTION: COMBINING BACKPACK AND DATABASE
+SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    searchQuery = string.lower(SearchBox.Text)
+    renderList()
+end)
+
 local function scanInventory()
     availableItems = {}
     local validIds = {}
     local counts = {Fruits = 0, Pets = 0, Stacks = 0}
 
-    -- 1. SCAN BACKPACK (Focuses on Fruits physically in the bag)
     for _, item in pairs(LocalPlayer.Backpack:GetChildren()) do
         local uuid = item:GetAttribute("Id")
         if uuid then
-            -- Detect fruit based on attributes
             local isFruit = item:GetAttribute("HarvestedFruit") == true or item:GetAttribute("Weight") ~= nil
             if isFruit and not validIds[uuid] then
                 table.insert(availableItems, {
@@ -308,13 +345,10 @@ local function scanInventory()
         end
     end
 
-    -- 2. SCAN DATABASE (For Pets and Stackable items like Seeds, Gears)
     local replica = PlayerStateClient:GetLocalReplica()
     if replica and replica.Data and replica.Data.Inventory then
         for cat, catData in pairs(replica.Data.Inventory) do
             if typeof(catData) == "table" then
-                
-                -- FETCH PETS FROM DATABASE
                 if cat == "Pets" then
                     for itemKey, itemVal in pairs(catData) do
                         if typeof(itemVal) == "table" and itemVal.Equipped ~= true then
@@ -332,8 +366,6 @@ local function scanInventory()
                             end
                         end
                     end
-                
-                -- FETCH FRUITS FROM DATABASE (As backup if backpack check fails)
                 elseif cat == "HarvestedFruits" or cat == "Crops" then
                     for itemKey, itemVal in pairs(catData) do
                         if typeof(itemVal) == "table" then
@@ -355,8 +387,6 @@ local function scanInventory()
                             end
                         end
                     end
-
-                -- FETCH STACKABLES FROM DATABASE (Seeds, Gears, etc.)
                 else
                     for itemKey, count in pairs(catData) do
                         if typeof(count) == "number" and count > 0 then
@@ -379,14 +409,12 @@ local function scanInventory()
                         end
                     end
                 end
-
             end
         end
     else
         addLog("Warning: Could not load PlayerState database.", Color3.fromRGB(255, 150, 100))
     end
 
-    -- Clear selection memory if items are no longer in the inventory
     for id, _ in pairs(selectedItems) do
         if not validIds[id] then selectedItems[id] = nil end
     end
@@ -417,22 +445,26 @@ end
 changeTab("All")
 
 RefreshBtn.MouseButton1Click:Connect(scanInventory)
+
 SelectAllBtn.MouseButton1Click:Connect(function()
     for _, item in ipairs(availableItems) do 
-        if currentTab == "All" or item.TabCategory == currentTab then
+        local matchesTab = (currentTab == "All" or item.TabCategory == currentTab)
+        local matchesSearch = (searchQuery == "" or string.find(string.lower(item.Name), searchQuery))
+        
+        if matchesTab and matchesSearch then
             selectedItems[item.Id] = true 
         end
     end
     renderList()
 end)
+
 ClearBtn.MouseButton1Click:Connect(function()
-    if currentTab == "All" then
-        selectedItems = {}
-    else
-        for _, item in ipairs(availableItems) do
-            if item.TabCategory == currentTab then
-                selectedItems[item.Id] = nil
-            end
+    for _, item in ipairs(availableItems) do
+        local matchesTab = (currentTab == "All" or item.TabCategory == currentTab)
+        local matchesSearch = (searchQuery == "" or string.find(string.lower(item.Name), searchQuery))
+        
+        if matchesTab and matchesSearch then
+            selectedItems[item.Id] = nil
         end
     end
     renderList()
@@ -489,7 +521,6 @@ SendBtn.MouseButton1Click:Connect(function()
         for i, item in ipairs(itemsToSend) do
             local amountToSend = item.Count
             
-            -- Apply custom limit if user entered a number, AND the item is NOT a unique item
             if globalAmount and globalAmount > 0 then
                 if item.TabCategory ~= "Pets" and item.TabCategory ~= "Fruits" then
                     amountToSend = math.min(globalAmount, item.Count)
@@ -540,4 +571,4 @@ SendBtn.MouseButton1Click:Connect(function()
 end)
 
 scanInventory()
-addLog("Hybrid Scanner V6 ready to use.", Color3.fromRGB(100, 255, 100))
+addLog("Hybrid Scanner V7 (Responsive) ready.", Color3.fromRGB(100, 255, 100))
