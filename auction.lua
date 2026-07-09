@@ -1,22 +1,20 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 local PacketEvent = ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"):WaitForChild("RemoteEvent")
 
--- ==========================================
--- PENGATURAN UTAMA (SUDAH DISESUAIKAN)
--- ==========================================
 local targetItem = "Common Egg"
-local spamDelay = 0.1  -- Jeda aman untuk server
-local buyAmount = 2    -- Tembakan per siklus (jangan terlalu tinggi agar tidak kena cooldown)
+local spamDelay = 0.1
+local buyAmount = 7
 local bufferPrefix = "H\001\020"
-local bufferSuffix = "\000\000\000(P\132\172A" -- Ekor buffer
+local bufferSuffix = "\000\000\000(P\132\172A"
 
--- Membersihkan GUI Lama
+-- Check and remove old GUI if it exists
 local oldGui = game:GetService("CoreGui"):FindFirstChild("AutoDetectBuyGUI") 
     or Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("AutoDetectBuyGUI")
 if oldGui then oldGui:Destroy() end
 
--- Membuat GUI
+-- Create New GUI
 local gui = Instance.new("ScreenGui")
 gui.Name = "AutoDetectBuyGUI"
 local success, result = pcall(function() return game:GetService("CoreGui") end)
@@ -42,33 +40,30 @@ title.TextSize = 16
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = frame
 
--- Kolom Input Harga Maksimal (LANGSUNG SET KE 10M)
 local priceBox = Instance.new("TextBox")
 priceBox.Size = UDim2.new(1, -20, 0, 40)
 priceBox.Position = UDim2.new(0, 10, 0, 35)
 priceBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 priceBox.TextColor3 = Color3.fromRGB(200, 255, 200)
-priceBox.PlaceholderText = "Max Harga (Misal: 50m, 500k)"
-priceBox.Text = "30m" 
+priceBox.PlaceholderText = "Max Price (e.g., 50m, 500k)"
+priceBox.Text = "70m" 
 priceBox.TextScaled = true
 priceBox.ClearTextOnFocus = false
 priceBox.Parent = frame
 
--- Tombol Toggle (LANGSUNG MENYALA HIJAU SAAT DIEKSEKUSI)
 local toggleButton = Instance.new("TextButton")
 toggleButton.Size = UDim2.new(1, -20, 0, 50)
 toggleButton.Position = UDim2.new(0, 10, 0, 85)
-toggleButton.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
-toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.BackgroundColor3 = Color3.fromRGB(255, 200, 50)
+toggleButton.TextColor3 = Color3.fromRGB(0, 0, 0)
 toggleButton.TextScaled = true
 toggleButton.Font = Enum.Font.SourceSansBold
-toggleButton.Text = "MEMANTAU HARGA..."
+toggleButton.Text = "WAIT"
 toggleButton.Parent = frame
 
--- MENGAKTIFKAN AUTO BUY SECARA LANGSUNG
-local autoBuy = true
+local autoBuy = false
 
--- 1. FUNGSI KONVERSI TEKS KE ANGKA
+-- Function to convert text to number (e.g., 1k -> 1000)
 local function textToNumber(text)
     if not text then return 0 end
     text = string.lower(tostring(text))
@@ -93,6 +88,7 @@ local function textToNumber(text)
     return 0
 end
 
+-- Function to search for the target item in the auction GUI
 local function getTargetAuctionID(maxPriceLimit)
     local s, scrollingFrame = pcall(function()
         return Players.LocalPlayer.PlayerGui.Auction.Frame.ScrollingFrame
@@ -101,51 +97,126 @@ local function getTargetAuctionID(maxPriceLimit)
     if s and scrollingFrame then
         for _, child in pairs(scrollingFrame:GetChildren()) do
             if string.match(child.Name, "^Lot_auction:") then
-                
                 local foundID = nil
-                local foundStatus = "KOSONG"
+                local foundStatus = "EMPTY"
                 
                 pcall(function()
                     local mainFrame = child.Frame.Main_Frame
-                    local itemNameLabel = mainFrame.ItemName
+                    local itemNameLabel = mainFrame:FindFirstChild("ItemName")
                     
-                    if itemNameLabel.Text == targetItem then
-                        local textNode = mainFrame.BuyButton:FindFirstChild("Text")
-                        local priceText = textNode.TextLabel.Text
-                        local itemPrice = textToNumber(priceText)
+                    if itemNameLabel and itemNameLabel.Text == targetItem then
                         
-                        if itemPrice <= maxPriceLimit then
-                            foundID = string.gsub(child.Name, "Lot_", "")
-                            foundStatus = "BISA_BELI"
-                        else
-                            foundStatus = "KEMAHALAN"
+                        local stockText = mainFrame:FindFirstChild("Stock_Text")
+                        if stockText then
+                            local sText = string.lower(stockText.Text)
+                            if string.find(sText, "sold") or string.find(sText, "out") then
+                                foundStatus = "SOLD_OUT"
+                                return 
+                            end
+                        end
+
+                        local buyButton = mainFrame:FindFirstChild("BuyButton")
+                        if buyButton then
+                            local textNode = buyButton:FindFirstChild("Text")
+                            if textNode and textNode:FindFirstChild("TextLabel") then
+                                local priceText = textNode.TextLabel.Text
+                                local itemPrice = textToNumber(priceText)
+                                
+                                if itemPrice <= maxPriceLimit then
+                                    foundID = string.gsub(child.Name, "Lot_", "")
+                                    foundStatus = "BUYING"
+                                else
+                                    foundStatus = "EXPENSIVE"
+                                end
+                            end
                         end
                     end
                 end)
                 
-                if foundStatus ~= "KOSONG" then
+                if foundStatus ~= "EMPTY" then
                     return foundID, foundStatus
                 end
             end
         end
     end
-    return nil, "KOSONG"
+    return nil, "EMPTY"
 end
 
--- 3. LOGIKA TOMBOL (Hanya untuk mematikan/menyalakan secara manual)
+-- Toggle Button Logic
 toggleButton.MouseButton1Click:Connect(function()
     autoBuy = not autoBuy
     if autoBuy then
         toggleButton.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
-        toggleButton.Text = "MEMANTAU HARGA..."
+        toggleButton.Text = "WAITING"
     else
         toggleButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-        toggleButton.Text = "AUTO BUY BERHENTI"
+        toggleButton.Text = "STOP BUY"
     end
 end)
 
--- 4. LOOP UTAMA (BERJALAN OTOMATIS DI LATAR BELAKANG)
+-- Function to teleport and interact with NPC
+local function goToAndOpenAuction()
+    local char = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
+    local hrp = char:WaitForChild("HumanoidRootPart")
+    
+    local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+    local auctionButton = playerGui:WaitForChild("TeleportButtons")
+                                    :WaitForChild("TeleportButtons")
+                                    :WaitForChild("Auction")
+
+    toggleButton.Text = "TELEPORTING VIA UI"
+    
+    if auctionButton then
+        pcall(function()
+            firesignal(auctionButton.MouseButton1Click)
+            firesignal(auctionButton.Activated)
+        end)
+        
+        task.wait(2) 
+    else
+        warn("Auction Teleport button not found in PlayerGui!")
+        toggleButton.Text = "UI BUTTON NOT FOUND"
+        task.wait(2)
+    end
+
+    toggleButton.Text = "INTERACTING WITH NPC..."
+    
+    local closestPrompt = nil
+    local shortestDistance = 15 
+
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local part = obj.Parent
+            if part and part:IsA("BasePart") then
+                local distance = (part.Position - hrp.Position).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closestPrompt = obj
+                end
+            end
+        end
+    end
+
+    if closestPrompt then
+        fireproximityprompt(closestPrompt)
+        toggleButton.Text = "NPC DIALOG"
+        
+        task.wait(2.5) 
+    else
+        warn("Interact prompt not found near player after teleporting!")
+        toggleButton.Text = "NPC NOT FOUND"
+        task.wait(2)
+    end
+
+    autoBuy = true
+    toggleButton.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
+    toggleButton.Text = "WAIT BUY"
+end
+
+-- Main Loop
 task.spawn(function()
+    goToAndOpenAuction()
+
     while true do
         if autoBuy then
             local maxPrice = textToNumber(priceBox.Text)
@@ -153,7 +224,13 @@ task.spawn(function()
             if maxPrice > 0 then
                 local currentAuctionID, status = getTargetAuctionID(maxPrice)
                 
-                if currentAuctionID and status == "BISA_BELI" then
+                if status == "SOLD_OUT" then
+                    toggleButton.BackgroundColor3 = Color3.fromRGB(255, 150, 0)
+                    toggleButton.Text = "RESTOCK"
+                    
+                elseif currentAuctionID and status == "BUYING" then
+                    toggleButton.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
+                    
                     local finalBufferString = bufferPrefix .. currentAuctionID .. bufferSuffix
                     
                     pcall(function()
@@ -162,15 +239,19 @@ task.spawn(function()
                             PacketEvent:FireServer(unpack(args))
                         end
                     end)
-                    toggleButton.Text = "MEMBELI: " .. targetItem
+                    toggleButton.Text = "BUYING: " .. targetItem
                     
-                elseif status == "KEMAHALAN" then
-                    toggleButton.Text = "MENOLAK (HARGA MAHAL)"
+                elseif status == "EXPENSIVE" then
+                    toggleButton.BackgroundColor3 = Color3.fromRGB(200, 200, 50)
+                    toggleButton.Text = "EXPENSIVE"
+                    
                 else
-                    toggleButton.Text = "MENUNGGU " .. string.upper(targetItem) .. "..."
+                    toggleButton.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
+                    toggleButton.Text = "WAITING " .. string.upper(targetItem) .. "..."
                 end
             else
-                toggleButton.Text = "⚠️ HARGA TIDAK VALID ⚠️"
+                toggleButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+                toggleButton.Text = "⚠️ INVALID ⚠️"
             end
         end
         task.wait(spamDelay)
