@@ -222,6 +222,11 @@ local function scanPets()
             -- CEK RARE UNTUK WEBHOOK
             -- =======================================
             local isRare = false
+			if string.find(petName, "Unicorn") or 
+               string.find(petName, "Bear") or 
+               string.find(petName, "Raccoon") or 
+               string.find(petName, "Golden Dragonfly") then
+                 isRare = true
             if displaySize == "Big" or displaySize == "Mega" or displaySize == "Huge" then isRare = true end
             if displayType == "Rainbow" then isRare = true end
 
