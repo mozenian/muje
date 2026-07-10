@@ -617,37 +617,27 @@ local function restoreDescendant(desc)
 end
 
 function updatePlantsVisibility()
-	local plot = getMyPlot()
-	if not plot then return end
+	local Gardens = workspace:FindFirstChild("Gardens")
+	if not Gardens then return end
 
-	-- Process Plants
-	local plants = plot:FindFirstChild("Plants")
-	if plants then
-		for _, desc in ipairs(plants:GetDescendants()) do
-			if plantsHidden then
-				hideDescendant(desc)
-			else
-				restoreDescendant(desc)
-			end
-		end
-	end
-
-	-- Process Props
-	local props = plot:FindFirstChild("Props")
-	if props then
-		for _, desc in ipairs(props:GetDescendants()) do
-			if plantsHidden then
-				hideDescendant(desc)
-			else
-				restoreDescendant(desc)
+	for _, plot in ipairs(Gardens:GetChildren()) do
+		-- Process Plants & Props untuk SETIAP plot
+		for _, folderName in ipairs({"Plants", "Props"}) do
+			local folder = plot:FindFirstChild(folderName)
+			if folder then
+				for _, desc in ipairs(folder:GetDescendants()) do
+					if plantsHidden then
+						hideDescendant(desc)
+					else
+						restoreDescendant(desc)
+					end
+				end
 			end
 		end
 	end
 end
 
 local function setupPlotConnection(plot)
-	local myPlot = getMyPlot()
-	if not myPlot or plot ~= myPlot then return end
 
 	-- Setup Plants
 	local plants = plot:FindFirstChild("Plants")
@@ -669,7 +659,7 @@ local function setupPlotConnection(plot)
 	end
 
 	-- Setup Props
-	local props = plot:FindFirstChild("Props")
+local props = plot:FindFirstChild("Props")
 	if props then
 		for _, desc in ipairs(props:GetDescendants()) do
 			disableEffectsAndAnimations(desc)
@@ -726,7 +716,7 @@ end
 -- Auto Harvest (ORIGINAL)
 task.spawn(function()
 	while true do
-		task.wait(0.3)
+		task.wait(0.05)
 		if not ScreenGui.Parent then break end
 
 		if autoHarvestEnabled then
