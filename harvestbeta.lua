@@ -1,353 +1,764 @@
 -- ==========================================
--- KONFIGURASI WEBHOOK DISCORD
+-- ULTIMATE AUTO FARM (PLOT ID FIX & PLANTAREA OFFSET)
 -- ==========================================
-local WebhookURL = "https://discord.com/api/webhooks/1489342206853513269/QPKARC7IelRlcRA-lQr33I4obZMqcXJh6QxpJKVGMFyb09qZfwkb3zyDQBiDZQ5mZLWE"
 
--- ==========================================
--- DAFTAR TARGET PET (BOT BERHENTI JIKA INI DIDAPAT)
--- ==========================================
-local TargetList = {
-    {"Unicorn", "Mega", ""},
-    {"Unicorn", "Big", ""},
-    {"Unicorn", "Huge", ""},
-    {"Unicorn", "Huge", "Rainbow"},
-    {"Unicorn", "Mega", "Rainbow"},
-    {"Unicorn", "Big", "Rainbow"},
-    {"Unicorn", "", "Rainbow"},
-    {"Raccoon", "Big", ""},
-    {"Raccoon", "Huge", ""},
-    {"Raccoon", "Huge", "Rainbow"},
-    {"Raccoon", "Big", "Rainbow"},
-    {"Raccoon", "Mega", "Rainbow"},
-    {"Raccoon", "Mega", ""},
-    {"Raccoon", "", "Rainbow"},
-    {"Bear", "Mega", ""},
-    {"Bear", "Mega", "Rainbow"},
-    {"Bear", "Huge", ""},
-    {"Bear", "Huge", "Rainbow"},
-    {"Bear", "Big", "Rainbow"},
-    {"Bear", "", "Rainbow"},
-    {"Bald Eagle", "Mega", ""},
-    {"Bald Eagle", "Mega", "Rainbow"},
-    {"Bald Eagle", "Huge", ""},
-    {"Bald Eagle", "Huge", "Rainbow"},
-    {"Bald Eagle", "Big", ""},
-    {"Bald Eagle", "Big", "Rainbow"},
-    {"Bald Eagle", "", "Rainbow"},
-    {"Golden Dragonfly", "Mega", ""},
-    {"Golden Dragonfly", "", "Rainbow"},
-    {"Golden Dragonfly", "Huge", "Rainbow"},
-    {"Golden Dragonfly", "Big", "Rainbow"},
-    {"Golden Dragonfly", "Mega", "Rainbow"},
-}
-
--- ==========================================
--- DAFTAR TELUR YANG INGIN DI-HATCH
--- ==========================================
-local TargetEggs = {
-    "Common Egg",
-    "Rainbow Egg"
-}
-
--- ==========================================
--- INISIALISASI VARIABEL
--- ==========================================
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Remote = ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"):WaitForChild("RemoteEvent")
-local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
-local player = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TeleportService = game:GetService("TeleportService")
+local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
-local NotifiedPets = {} 
-
--- ==========================================
--- FUNGSI WEBHOOK DISCORD
--- ==========================================
-local function sendWebhook(messageContent)
-    if WebhookURL == "" or WebhookURL == "ISI_LINK_WEBHOOK_DISINI" then return end
-    
-    local data = {
-        ["content"] = messageContent,
-        ["username"] = "Pet Notifier",
-        ["avatar_url"] = "https://media.discordapp.net/attachments/1518293361096654948/1524668262225285130/IMG-20251016-WA0000.jpg?ex=6a509578&is=6a4f43f8&hm=2fef5e7ff037f577f0d4a9d9836764c6fbd95e8a77154ceb9f1a6475d83b9784&=&format=webp"
-    }
-    
-    local req = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
-    if req then
-        pcall(function()
-            req({
-                Url = WebhookURL,
-                Method = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
-                Body = HttpService:JSONEncode(data)
-            })
-        end)
+local function forceClickToStart()
+    if not game:IsLoaded() then
+        game.Loaded:Wait()
     end
+    
+    task.wait(2) -- Tunggu UI game muncul
+    
+    local cam = workspace.CurrentCamera
+    if cam then
+        -- Target: Kiri Bawah (10% dari kiri, 90% dari bawah)
+        -- Kamu bisa mengubah angka ini jika kurang pas
+        local targetX = cam.ViewportSize.X * 0.1
+        local targetY = cam.ViewportSize.Y * 0.9
+        
+        VirtualInputManager:SendMouseButtonEvent(targetX, targetY, 0, true, game, 1)
+        task.wait(0.1)
+        VirtualInputManager:SendMouseButtonEvent(targetX, targetY, 0, false, game, 1)
+        
+        print("Auto-Click executed at Bottom-Left: " .. targetX .. ", " .. targetY)
+    end
+end
+task.spawn(forceClickToStart)
+
+local LocalPlayer = Players.LocalPlayer
+local RemoteEvent = ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"):WaitForChild("RemoteEvent")
+
+-- Variabel Status
+local autoWatering = false
+local selectedOwner = nil
+local selectedSeed = nil
+local savedPlantCFrame = nil 
+
+local rollbackActive = false
+local autoRejoinActive = false
+local waterCount = 0
+local waterLimit = 50
+
+-- ==========================================
+-- SISTEM LOAD CONFIG
+-- ==========================================
+local configFileName = "WISNU_sswc.json"
+
+local function LoadConfig()
+    if readfile and isfile and isfile(configFileName) then
+        local success, result = pcall(function()
+            return HttpService:JSONDecode(readfile(configFileName))
+        end)
+        if success and type(result) == "table" then
+            selectedOwner = result.Owner ~= "" and result.Owner or nil
+            selectedSeed = result.Seed ~= "" and result.Seed or nil
+            waterLimit = tonumber(result.Limit) or 50
+            autoRejoinActive = result.Rejoin == true
+            rollbackActive = result.Rollback == true
+        end
+    end
+end
+LoadConfig()
+
+-- ==========================================
+-- SISTEM ANTI-ERROR & SKIP LOADING SCREEN
+-- ==========================================
+local function skipLoadingScreen()
+    task.spawn(function()
+        pcall(function()
+            local playerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
+            if not playerGui then return end
+            
+            -- Terus pantau selama 20 detik
+            for i = 1, 20 do
+                local foundSkip = false
+                local targetGui = nil
+                
+                for _, gui in pairs(playerGui:GetChildren()) do
+                    if gui:IsA("ScreenGui") and gui.Enabled then
+                        for _, obj in pairs(gui:GetDescendants()) do
+                            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+                                local text = string.lower(obj.Text or "")
+                                if text:find("click to skip") or text:find("skip") or text:find("play") or text:find("press any key") then
+                                    foundSkip = true
+                                    targetGui = gui
+                                    
+                                    -- Kalau dia button, kita fire signal internalnya pake task.spawn biar gak nyangkut
+                                    if obj:IsA("TextButton") and getconnections then
+                                        for _, conn in pairs(getconnections(obj.MouseButton1Click)) do 
+                                            task.spawn(function() pcall(function() conn:Fire() end) end) 
+                                        end
+                                        for _, conn in pairs(getconnections(obj.Activated)) do 
+                                            task.spawn(function() pcall(function() conn:Fire() end) end) 
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                -- Jika ada tulisan Skip/Play, simulasikan klik + Spacebar!
+                if foundSkip then
+                    task.spawn(function()
+                        -- 1. Simulasi Klik Tengah Layar
+                        local cam = workspace.CurrentCamera
+                        if cam then
+                            local centerX, centerY = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
+                            pcall(function()
+                                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+                                task.wait(0.1)
+                                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+                            end)
+                        end
+                        
+                        -- 2. Simulasi pencet SPASI
+                        pcall(function()
+                            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                            task.wait(0.1)
+                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                        end)
+                        
+                        -- 3. Hancurkan GUI-nya sebagai fallback pamungkas
+                        if targetGui then
+                            pcall(function() targetGui.Enabled = false end)
+                        end
+                    end)
+                end
+                
+                task.wait(1)
+            end
+        end)
+    end)
+end
+
+local function setupAutoReconnect()
+    local GuiService = game:GetService("GuiService")
+    -- Handle "Uh Oh" Disconnect Error 277 (Efek dari Datastore Crash / Rollback)
+    GuiService.ErrorMessageChanged:Connect(function(errorMessage)
+        task.spawn(function()
+            while true do
+                task.wait(5) -- Coba reconnect setiap 5 detik
+                pcall(function()
+                    TeleportService:Teleport(game.PlaceId, LocalPlayer)
+                end)
+            end
+        end)
+    end)
+end
+
+setupAutoReconnect()
+skipLoadingScreen()
+
+
+-- ==========================================
+-- SISTEM GENERATOR BUFFER BINARY (DIKOREKSI)
+-- ==========================================
+local function getPlotId(plot)
+    if not plot then return 1 end
+    -- Mengekstrak angka dari nama plot (Contoh: "Plot2" -> 2)
+    local num = string.match(plot.Name, "%d+")
+    return tonumber(num) or 1
+end
+
+local function createSprinklerBuffer(pos, plotId)
+    local buf = buffer.create(31)
+    buffer.writeu16(buf, 0, 20)
+    buffer.writef32(buf, 2, pos.X)
+    buffer.writef32(buf, 6, pos.Y)
+    buffer.writef32(buf, 10, pos.Z)
+    buffer.writeu8(buf, 14, 15)
+    buffer.writestring(buf, 15, "Super Sprinkler")
+    -- FIX FATAL: Menggunakan ID Plot Asli, bukan hardcoded angka 3!
+    buffer.writeu8(buf, 30, plotId) 
+    return buf
+end
+
+local function createWaterBuffer(pos)
+    local buf = buffer.create(33)
+    buffer.writeu16(buf, 0, 67)
+    buffer.writef32(buf, 2, pos.X)
+    buffer.writef32(buf, 6, pos.Y)
+    buffer.writef32(buf, 10, pos.Z)
+    buffer.writeu8(buf, 14, 18)
+    buffer.writestring(buf, 15, "Super Watering Can")
+    return buf
 end
 
 -- ==========================================
--- FUNGSI ROLLBACK & REJOIN
+-- SISTEM ROLLBACK EXPLOIT
 -- ==========================================
 local function fireRollbackOnce()
-    local payload = string.char(0x3A, 0xF7)
-    Remote:FireServer(payload)
-    Remote:FireServer(54, "\xEF\xBF")
-    Remote:FireServer(54, ":\xF7")
+    if not RemoteEvent then return false end
+    RemoteEvent:FireServer(string.char(0x3A, 0xF7))
+    RemoteEvent:FireServer(54, "\xEF\xBF")
+    RemoteEvent:FireServer(54, ":\xF7")
+    rollbackActive = true
+    return true
 end
 
 local function disableRollbackOnce()
-    Remote:FireServer(54, "")
-    Remote:FireServer(54, string.char(0x20))
-    Remote:FireServer(54)
-    Remote:FireServer(20, "")
-end
-
-local function rejoinGame()
-    TeleportService:Teleport(game.PlaceId, player)
+    if not rollbackActive or not RemoteEvent then return false end
+    RemoteEvent:FireServer(54, "")
+    RemoteEvent:FireServer(54, string.char(0x20))
+    RemoteEvent:FireServer(54)
+    RemoteEvent:FireServer(20, "")
+    rollbackActive = false
+    return true
 end
 
 -- ==========================================
--- PERSIAPAN MENGABAIKAN PET LAMA (ANTI-SPAM)
+-- FUNGSI LOGIKA UTAMA & SMART DETEKSI
 -- ==========================================
-local function registerInitialPets()
-    local bp = player:FindFirstChild("Backpack")
-    if bp then
-        for _, item in ipairs(bp:GetChildren()) do
-            NotifiedPets[item] = true
-        end
+local function getPlotByOwner(ownerName)
+    local gardens = Workspace:FindFirstChild("Gardens")
+    if not gardens or not ownerName then return nil end
+    for _, plot in pairs(gardens:GetChildren()) do
+        local ownerAttr = plot:GetAttribute("Owner") or (plot:FindFirstChild("Owner") and plot.Owner.Value)
+        if ownerAttr == ownerName then return plot end
     end
-    if player.Character then
-        for _, item in ipairs(player.Character:GetChildren()) do
-            if item:IsA("Tool") then
-                NotifiedPets[item] = true
-            end
-        end
-    end
+    return nil
 end
 
--- ==========================================
--- FUNGSI UTAMA PENDETEKSIAN PET
--- ==========================================
-local function scanPets()
-    local itemsToCheck = {}
-    
-    -- 1. Ambil dari Folder Temporary (Visual Animasi)
-    local tempFolder = workspace:FindFirstChild("Temporary")
-    if tempFolder then
-        for _, item in ipairs(tempFolder:GetChildren()) do
-            -- FILTER KETAT: Abaikan komponen UI/Attachment, hanya proses Model/Part asli
-            if not string.find(item.Name, "Attachment") and not string.find(item.Name, "Effect") then
-                if item:IsA("Model") or item:IsA("BasePart") then
-                    table.insert(itemsToCheck, item)
+local function destroyAllPlantsEverywhere()
+    local gardens = Workspace:FindFirstChild("Gardens")
+    if not gardens then return end
+
+    for _, plot in pairs(gardens:GetChildren()) do
+        local plantsFolder = plot:FindFirstChild("Plants")
+        if plantsFolder then
+            local children = plantsFolder:GetChildren()
+            for i, plant in ipairs(children) do
+                pcall(function()
+                    plant:Destroy()
+                end)
+                
+                -- Memberi jeda setiap 20 tanaman agar tidak lag/skip
+                if i % 20 == 0 then
+                    task.wait() 
                 end
             end
         end
     end
-    
-    -- 2. Ambil dari Backpack (Data Pet Asli)
-    local bp = player:FindFirstChild("Backpack")
-    if bp then
-        for _, item in ipairs(bp:GetChildren()) do
-            -- FILTER KETAT: Hanya proses jika dia berjenis "Tool" (Bentuk asli pet di inventory)
-            if item:IsA("Tool") and not table.find(TargetEggs, item.Name) then 
-                table.insert(itemsToCheck, item)
-            end
-        end
-    end
-
-    local newlyHatchedRare = {}
-    local foundTarget = false
-    local targetDetails = nil
-
-    for _, item in ipairs(itemsToCheck) do
-        if not NotifiedPets[item] then
-            NotifiedPets[item] = true
-            
-            local petNameAttr = item:GetAttribute("Pet") or ""
-            local petSizeAttr = item:GetAttribute("PetSize") or ""
-            local petTypeAttr = item:GetAttribute("PetType") or ""
-            local objName = item.Name
-
-            local visualText = ""
-            pcall(function()
-                for _, desc in ipairs(item:GetDescendants()) do
-                    if desc:IsA("TextLabel") and desc.Text ~= "" then
-                        visualText = visualText .. " " .. desc.Text
-                    end
-                end
-            end)
-
-            local petName = (petNameAttr ~= "") and petNameAttr or objName
-            local displaySize = petSizeAttr
-            local displayType = petTypeAttr
-
-            if displaySize == "" then
-                if string.find(objName, "Big") or string.find(visualText, "Big") then displaySize = "Big"
-                elseif string.find(objName, "Mega") or string.find(visualText, "Mega") then displaySize = "Mega"
-                elseif string.find(objName, "Huge") or string.find(visualText, "Huge") then displaySize = "Huge"
-                end
-            end
-
-            if displayType == "" then
-                if string.find(objName, "Rainbow") or string.find(visualText, "Rainbow") then displayType = "Rainbow" end
-            end
-
-            -- =======================================
-            -- CEK TARGET UNTUK STOP BOT
-            -- =======================================
-            for _, target in ipairs(TargetList) do
-                local tName = target[1]
-                local tSize = target[2]
-                local tType = target[3]
-
-                if tName == "" and tSize == "" and tType == "" then continue end
-
-                local matchPet = (tName == "") or (petNameAttr == tName) or string.find(objName, tName) or string.find(visualText, tName)
-                local matchSize = (tSize == "") or (displaySize == tSize)
-                local matchType = (tType == "") or (displayType == tType)
-
-                if matchPet and matchSize and matchType then
-                    foundTarget = true
-                    targetDetails = string.format("%s (Size: %s, Type: %s)", 
-                        tName ~= "" and tName or petName, 
-                        tSize ~= "" and tSize or "Normal", 
-                        tType ~= "" and tType or "Normal"
-                    )
-                    break
-                end
-            end
-
-            -- =======================================
-            -- CEK RARE UNTUK WEBHOOK
-            -- =======================================
-            local isRare = false
-			if string.find(petName, "Unicorn") or 
-               string.find(petName, "Bear") or 
-               string.find(petName, "Raccoon") or 
-               string.find(petName, "Golden Dragonfly") then
-                 isRare = true
-            if displaySize == "Big" or displaySize == "Mega" or displaySize == "Huge" then isRare = true end
-            if displayType == "Rainbow" then isRare = true end
-
-            if isRare then
-                local details = string.format("**%s** (Size: %s, Type: %s)", 
-                    petName, 
-                    displaySize ~= "" and displaySize or "Normal", 
-                    displayType ~= "" and displayType or "Normal"
-                )
-                table.insert(newlyHatchedRare, details)
-            end
-        end
-    end
-
-    -- =======================================
-    -- KIRIM PESAN KE DISCORD
-    -- =======================================
-    if #newlyHatchedRare > 0 then
-        local messageChunk = "🌟 **Rare Pets Hatched!** 🌟\nMendapatkan:\n"
-        for _, petDetail in ipairs(newlyHatchedRare) do
-            local nextLine = "- " .. petDetail .. "\n"
-            if string.len(messageChunk) + string.len(nextLine) > 1900 then
-                sendWebhook(messageChunk)
-                messageChunk = "🌟 **Rare Pets Hatched (Lanjutan)!** 🌟\nMendapatkan:\n"
-            end
-            messageChunk = messageChunk .. nextLine
-        end
-        if messageChunk ~= "🌟 **Rare Pets Hatched!** 🌟\nMendapatkan:\n" and messageChunk ~= "🌟 **Rare Pets Hatched (Lanjutan)!** 🌟\nMendapatkan:\n" then
-            sendWebhook(messageChunk)
-        end
-    end
-
-    return foundTarget, targetDetails
+    print("Cleanup selesai!")
 end
-
--- ==========================================
--- FUNGSI SPAM TELUR
--- ==========================================
-local function hasEgg()
-    local inBackpack = player:FindFirstChild("Backpack")
-    local inCharacter = player.Character
-
-    for _, eggName in ipairs(TargetEggs) do
-        if (inBackpack and inBackpack:FindFirstChild(eggName)) or (inCharacter and inCharacter:FindFirstChild(eggName)) then
-            return true
+local function isSprinklerActive(plot)
+    if not plot then return false end
+    local sprinklersFolder = plot:FindFirstChild("Sprinklers")
+    if sprinklersFolder then
+        for _, obj in pairs(sprinklersFolder:GetChildren()) do
+            local sprName = obj:GetAttribute("SprinklerName")
+            if sprName == "Super Sprinkler" or string.find(obj.Name, "Super Sprinkler") then
+                return true
+            end
         end
     end
     return false
 end
 
-local function openEggs(amount)
-    for _, eggName in ipairs(TargetEggs) do
-        local payloadString = "\142\000&" .. string.char(#eggName) .. eggName
-        local args = { buffer.fromstring(payloadString) }
-        
-        for i = 1, amount do
-            task.spawn(function()
-                Remote:FireServer(unpack(args))
+local function equipTool(toolName)
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return nil end
+
+    local toolInChar = char:FindFirstChild(toolName)
+    if toolInChar then return toolInChar end
+
+    local toolInBackpack = LocalPlayer.Backpack:FindFirstChild(toolName)
+    if toolInBackpack then
+        humanoid:EquipTool(toolInBackpack)
+        task.wait(0.2)
+        return toolInBackpack
+    end
+    return nil
+end
+
+-- PHYSICS FLIGHT
+local function flyToTarget(targetPos)
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Humanoid") then return false end
+    
+    local root = char.HumanoidRootPart
+    local hum = char.Humanoid
+    
+    local finalTarget = Vector3.new(targetPos.X, root.Position.Y, targetPos.Z)
+    local distance = (root.Position - finalTarget).Magnitude
+    if distance <= 12 then return true end 
+    
+    local bv = Instance.new("BodyVelocity")
+    bv.MaxForce = Vector3.new(999999, 999999, 999999)
+    bv.Velocity = Vector3.zero
+    bv.Parent = root
+    
+    local noclip = RunService.Stepped:Connect(function()
+        if char then
+            for _, p in pairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then p.CanCollide = false end
+            end
+        end
+    end)
+    
+    hum:ChangeState(Enum.HumanoidStateType.Physics)
+    
+    local speed = 25 
+    local timeout = 0
+    local maxTime = (distance / speed) + 10 
+    
+    while char and root and (root.Position - finalTarget).Magnitude > 8 and timeout < maxTime do
+        local direction = (finalTarget - root.Position).Unit
+        bv.Velocity = direction * speed
+        task.wait(0.1)
+        timeout = timeout + 0.1
+    end
+    
+    if bv then bv:Destroy() end
+    if noclip then noclip:Disconnect() end
+    
+    root.Velocity = Vector3.zero
+    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+    task.wait(0.3)
+    
+    return (root.Position - finalTarget).Magnitude <= 15
+end
+
+-- ==========================================
+-- PEMBUATAN GUI MINIMALIST
+-- ==========================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "FarmGUI_Minimalist"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = game:GetService("CoreGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "Main"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+MainFrame.Position = UDim2.new(0.5, -140, 0.2, 0)
+MainFrame.Size = UDim2.new(0, 280, 0, 0)
+MainFrame.AutomaticSize = Enum.AutomaticSize.Y
+MainFrame.Active = true
+MainFrame.Draggable = true
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+
+local UIListLayout = Instance.new("UIListLayout", MainFrame)
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 8)
+UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local UIPadding = Instance.new("UIPadding", MainFrame)
+UIPadding.PaddingTop = UDim.new(0, 10)
+UIPadding.PaddingBottom = UDim.new(0, 10)
+
+local function createButton(text, color, parent)
+    local btn = Instance.new("TextButton")
+    btn.Parent = parent
+    btn.Size = UDim2.new(0.9, 0, 0, 40)
+    btn.BackgroundColor3 = color
+    btn.Font = Enum.Font.GothamSemibold
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 14
+    btn.AutoButtonColor = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    return btn
+end
+
+local Title = Instance.new("TextLabel")
+Title.Parent = MainFrame
+Title.BackgroundTransparency = 1
+Title.Size = UDim2.new(1, 0, 0, 30)
+Title.Font = Enum.Font.GothamBold
+Title.Text = "WISNU AUTO SS SWC"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 18
+
+local function createDropdown(placeholder)
+    local DropdownBtn = createButton(placeholder, Color3.fromRGB(50, 50, 50), MainFrame)
+    local ScrollFrame = Instance.new("ScrollingFrame")
+    ScrollFrame.Parent = MainFrame
+    ScrollFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    ScrollFrame.Size = UDim2.new(0.9, 0, 0, 120)
+    ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    ScrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    ScrollFrame.ScrollBarThickness = 4
+    ScrollFrame.Visible = false
+    Instance.new("UICorner", ScrollFrame).CornerRadius = UDim.new(0, 6)
+    
+    local ScrollLayout = Instance.new("UIListLayout", ScrollFrame)
+    ScrollLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    
+    DropdownBtn.MouseButton1Click:Connect(function()
+        ScrollFrame.Visible = not ScrollFrame.Visible
+    end)
+    return DropdownBtn, ScrollFrame
+end
+
+local PlotDropdown, PlotScroll = createDropdown(selectedOwner or "Pilih Plot (Owner)")
+local PlantDropdown, PlantScroll = createDropdown(selectedSeed or "Pilih Pohon/Seed")
+
+local RollbackBtn = createButton(
+    rollbackActive and "Rollback: ON" or "Rollback: OFF", 
+    rollbackActive and Color3.fromRGB(251, 197, 49) or Color3.fromRGB(70, 70, 70), 
+    MainFrame
+)
+
+local LimitInput = Instance.new("TextBox")
+LimitInput.Parent = MainFrame
+LimitInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+LimitInput.Size = UDim2.new(0.9, 0, 0, 35)
+LimitInput.Font = Enum.Font.Gotham
+LimitInput.Text = tostring(waterLimit)
+LimitInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+LimitInput.TextSize = 14
+Instance.new("UICorner", LimitInput).CornerRadius = UDim.new(0, 6)
+
+local AutoRejoinBtn = createButton(autoRejoinActive and "Auto Rejoin: ON" or "Auto Rejoin: OFF", autoRejoinActive and Color3.fromRGB(76, 209, 55) or Color3.fromRGB(70, 70, 70), MainFrame)
+
+local SaveConfigBtn = createButton("Save Config Manual", Color3.fromRGB(0, 150, 136), MainFrame)
+local AutoFarmBtn = createButton("Auto Farm: OFF (0)", Color3.fromRGB(232, 65, 24), MainFrame)
+
+local StatusText = Instance.new("TextLabel")
+StatusText.Parent = MainFrame
+StatusText.BackgroundTransparency = 1
+StatusText.Size = UDim2.new(1, 0, 0, 20)
+StatusText.Font = Enum.Font.Gotham
+StatusText.Text = "Status: Siap!"
+StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
+StatusText.TextSize = 12
+
+-- ==========================================
+-- LOGIKA DROPDOWN DINAMIS & AUTO LOCATE
+-- ==========================================
+local function locateTargetPlant()
+    if not selectedOwner or not selectedSeed then return false end
+    
+    -- Mencoba mencari sebanyak 5 kali dengan jeda 2 detik
+    for i = 1, 5 do
+        local plot = getPlotByOwner(selectedOwner)
+        if plot then
+            local plantsFolder = plot:FindFirstChild("Plants")
+            if plantsFolder then
+                for _, plant in pairs(plantsFolder:GetChildren()) do
+                    if plant:GetAttribute("SeedName") == selectedSeed then
+                        local root = plant:FindFirstChild("HumanoidRootPart") or plant:FindFirstChildWhichIsA("BasePart")
+                        if root then
+                            savedPlantCFrame = root.CFrame
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+        StatusText.Text = "Status: Mencari pohon (Percobaan " .. i .. "/5)..."
+        task.wait(2)
+    end
+    return false
+end
+
+local function updatePlantList()
+    for _, child in pairs(PlantScroll:GetChildren()) do
+        if child:IsA("TextButton") then child:Destroy() end
+    end
+    selectedSeed, savedPlantCFrame = nil, nil
+    PlantDropdown.Text = "Pilih Pohon/Seed"
+
+    local plot = getPlotByOwner(selectedOwner)
+    if not plot then return end
+    
+    local plantsFolder = plot:FindFirstChild("Plants")
+    if not plantsFolder then return end
+
+    local seenSeeds = {} 
+    for _, plant in pairs(plantsFolder:GetChildren()) do
+        local seedName = plant:GetAttribute("SeedName")
+        local root = plant:FindFirstChild("HumanoidRootPart") or plant:FindFirstChildWhichIsA("BasePart")
+
+        if seedName and root and not seenSeeds[seedName] then
+            seenSeeds[seedName] = true
+            local btn = Instance.new("TextButton")
+            btn.Parent = PlantScroll
+            btn.Size = UDim2.new(1, 0, 0, 30)
+            btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btn.Font = Enum.Font.Gotham
+            btn.Text = seedName
+            btn.TextSize = 14
+            
+            btn.MouseButton1Click:Connect(function()
+                selectedSeed = seedName
+                PlantDropdown.Text = seedName
+                PlantScroll.Visible = false
+                savedPlantCFrame = root.CFrame 
             end)
         end
     end
 end
 
--- ==========================================
--- MAIN LOOP (CORE)
--- ==========================================
-local function startBot()
-    registerInitialPets()
-    
-    fireRollbackOnce()
-    
-    if not player.Character then player.CharacterAdded:Wait() end
-    task.wait(2)
+local function updatePlotList()
+    for _, child in pairs(PlotScroll:GetChildren()) do
+        if child:IsA("TextButton") then child:Destroy() end
+    end
+    local gardens = Workspace:FindFirstChild("Gardens")
+    if not gardens then return end
 
-    while task.wait(1) do
-        local found, petDetails = scanPets()
-        
-        if found then
-            disableRollbackOnce()
-            local successMessage = "@everyone 🎉 **Auto-Hatch Alert!** 🎉\nBerhasil mendapatkan target: **" .. petDetails .. "**\nRollback telah dibatalkan & data tersimpan aman!"
-            sendWebhook(successMessage) 
-            task.wait(3) 
-            player:Kick(successMessage)
-            return 
-        end
-
-        if hasEgg() then
-            openEggs(500)
-        else
-            local temporaryFolder = workspace:FindFirstChild("Temporary")
-            if temporaryFolder then
-                while #temporaryFolder:GetChildren() > 0 do
-                    local waitFound, waitDetails = scanPets()
-                    if waitFound then
-                        disableRollbackOnce()
-                        local waitMessage = "@everyone 🎉 **Auto-Hatch Alert!** 🎉\nBerhasil mendapatkan target saat menunggu animasi: **" .. waitDetails .. "**\nRollback dibatalkan!"
-                        sendWebhook(waitMessage)
-                        task.wait(3) 
-                        player:Kick(waitMessage)
-                        return
-                    end
-                    task.wait(0.5)
-                end
-            end
+    for _, plot in pairs(gardens:GetChildren()) do
+        local ownerAttr = plot:GetAttribute("Owner") or (plot:FindFirstChild("Owner") and plot.Owner.Value)
+        if ownerAttr then
+            local btn = Instance.new("TextButton")
+            btn.Parent = PlotScroll
+            btn.Size = UDim2.new(1, 0, 0, 30)
+            btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btn.Font = Enum.Font.Gotham
+            btn.Text = ownerAttr
+            btn.TextSize = 14
             
-            task.wait(5)
-            
-            local finalFound, finalDetails = scanPets()
-            if finalFound then
-                disableRollbackOnce()
-                local finalMessage = "@everyone 🎉 **Auto-Hatch Alert!** 🎉\nBerhasil mendapatkan target di detik terakhir: **" .. finalDetails .. "**\nRollback dibatalkan!"
-                sendWebhook(finalMessage)
-                task.wait(3) 
-                player:Kick(finalMessage)
-                return
-            end
-
-            rejoinGame()
-            return 
+            btn.MouseButton1Click:Connect(function()
+                selectedOwner = ownerAttr
+                PlotDropdown.Text = ownerAttr
+                PlotScroll.Visible = false
+                updatePlantList()
+            end)
         end
     end
 end
 
-task.spawn(startBot)
+PlotDropdown.MouseButton1Click:Connect(updatePlotList)
+
+-- ==========================================
+-- AKSI TOMBOL
+-- ==========================================
+RollbackBtn.MouseButton1Click:Connect(function()
+    if rollbackActive then
+        disableRollbackOnce()
+        RollbackBtn.Text = "Rollback: OFF"
+        RollbackBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    else
+        fireRollbackOnce()
+        RollbackBtn.Text = "Rollback: ON"
+        RollbackBtn.BackgroundColor3 = Color3.fromRGB(251, 197, 49)
+    end
+end)
+
+LimitInput.FocusLost:Connect(function()
+    local num = tonumber(LimitInput.Text)
+    if num and num > 0 then
+        waterLimit = num
+    else
+        LimitInput.Text = tostring(waterLimit)
+    end
+end)
+
+AutoRejoinBtn.MouseButton1Click:Connect(function()
+    autoRejoinActive = not autoRejoinActive
+    if autoRejoinActive then
+        AutoRejoinBtn.Text = "Auto Rejoin: ON"
+        AutoRejoinBtn.BackgroundColor3 = Color3.fromRGB(76, 209, 55)
+    else
+        AutoRejoinBtn.Text = "Auto Rejoin: OFF"
+        AutoRejoinBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    end
+end)
+
+SaveConfigBtn.MouseButton1Click:Connect(function()
+    if writefile then
+        local data = {
+            Owner = selectedOwner or "",
+            Seed = selectedSeed or "",
+            Limit = waterLimit,
+            Rejoin = autoRejoinActive,
+            Rollback = rollbackActive
+        }
+        local success, err = pcall(function()
+            writefile(configFileName, HttpService:JSONEncode(data))
+        end)
+        
+        if success then
+            SaveConfigBtn.Text = "Config Saved!"
+            SaveConfigBtn.BackgroundColor3 = Color3.fromRGB(76, 209, 55)
+        else
+            SaveConfigBtn.Text = "Error Saving!"
+            SaveConfigBtn.BackgroundColor3 = Color3.fromRGB(232, 65, 24)
+        end
+    else
+        SaveConfigBtn.Text = "Executor Not Supported!"
+        SaveConfigBtn.BackgroundColor3 = Color3.fromRGB(232, 65, 24)
+    end
+    task.wait(1.5)
+    SaveConfigBtn.Text = "Save Config Manual"
+    SaveConfigBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 136)
+end)
+
+-- Main Trigger Auto Farm
+local function ToggleAutoFarm()
+    if not selectedOwner or not selectedSeed or not savedPlantCFrame then 
+        StatusText.Text = "Status: Target belum lengkap!"
+        return 
+    end
+
+    autoWatering = not autoWatering
+    if autoWatering then
+        AutoFarmBtn.Text = "Auto Farm: ON ("..waterCount..")"
+        AutoFarmBtn.BackgroundColor3 = Color3.fromRGB(76, 209, 55)
+        StatusText.Text = "Status: Memulai siklus..."
+        
+        destroyAllPlantsEverywhere() 
+
+        task.spawn(function()
+            local lastWaterTime = 0
+            local lastCleanupTime = os.clock() -- Tambahkan variabel timer ini
+
+            while autoWatering do
+                -- Logic Destroy setiap 10 detik
+                if os.clock() - lastCleanupTime >= 10 then
+                    destroyAllPlantsEverywhere()
+                    lastCleanupTime = os.clock() -- Reset timer
+                end
+
+                local currentPlot = getPlotByOwner(selectedOwner)
+                if currentPlot then
+                    
+                    -- ===============================================
+                    -- KALKULASI POSISI AMAN (PLANTAREA DETECTION)
+                    -- ===============================================
+                    local plantPos = savedPlantCFrame.Position
+                    local pullCenter = currentPlot:GetPivot().Position
+                    
+                    -- Cari Area Kebun (PlantAreaColumn) yang paling dekat dengan pohon
+                    local visual = currentPlot:FindFirstChild("Visual")
+                    if visual then
+                        local closestArea = nil
+                        local minDist = math.huge
+                        for _, obj in pairs(visual:GetChildren()) do
+                            if obj:IsA("BasePart") and string.find(obj.Name, "PlantArea") then
+                                local dist = (Vector3.new(obj.Position.X, 0, obj.Position.Z) - Vector3.new(plantPos.X, 0, plantPos.Z)).Magnitude
+                                if dist < minDist then
+                                    minDist = dist
+                                    closestArea = obj
+                                end
+                            end
+                        end
+                        if closestArea then
+                            -- Titik pusat penarikan sekarang adalah TEPAT di tengah area bertanah
+                            pullCenter = closestArea.Position
+                        end
+                    end
+                    
+                    local dirXZ = Vector3.new(pullCenter.X - plantPos.X, 0, pullCenter.Z - plantPos.Z)
+                    local pullDistance = 3.5
+                    
+                    if dirXZ.Magnitude > 0 then 
+                        if dirXZ.Magnitude < pullDistance then pullDistance = dirXZ.Magnitude end
+                        dirXZ = dirXZ.Unit 
+                    else 
+                        dirXZ = Vector3.new(0,0,1) 
+                        pullDistance = 0
+                    end
+                    
+                    -- Titik taruh Sprinkler ditarik mendekati tengah PlantArea agar tidak mepet pagar
+                    local safeSprinklerPos = plantPos + (dirXZ * pullDistance)
+                    safeSprinklerPos = Vector3.new(safeSprinklerPos.X, plantPos.Y, safeSprinklerPos.Z)
+                    
+                    local safePlayerPos = plantPos + (dirXZ * 5)
+                    -- ===============================================
+                    
+                    -- 1. CEK SPRINKLER
+                    if not isSprinklerActive(currentPlot) then
+                        StatusText.Text = "Status: Terbang (Sprinkler)..."
+                        if flyToTarget(safePlayerPos) then
+                            StatusText.Text = "Status: Placing Sprinkler..."
+                            local sprinklerTool = equipTool("Super Sprinkler")
+                            if sprinklerTool then
+                                -- MENGGUNAKAN PLOT ID DINAMIS & POSISI AMAN
+                                local plotId = getPlotId(currentPlot)
+                                local sprBuf = createSprinklerBuffer(safeSprinklerPos, plotId)
+                                RemoteEvent:FireServer(sprBuf, {sprinklerTool})
+                                task.wait(1.5) 
+                            end
+                        end
+                    end
+                    
+                    -- 2. PAKSA SIRAM SETIAP 5 DETIK
+                    local now = os.clock()
+                    if now - lastWaterTime >= 5 then
+                        StatusText.Text = "Status: Menuju pohon siram..."
+                        if flyToTarget(safePlayerPos) then
+                            StatusText.Text = "Status: Menyiram..."
+                            local waterTool = equipTool("Super Watering Can")
+                            if waterTool then
+                                local waterBuf = createWaterBuffer(plantPos)
+                                RemoteEvent:FireServer(waterBuf, {waterTool})
+                                
+                                waterCount = waterCount + 1
+                                AutoFarmBtn.Text = "Auto Farm: ON ("..waterCount..")"
+                                lastWaterTime = os.clock()
+                                
+                                if autoRejoinActive and waterCount >= waterLimit then
+                                    autoWatering = false
+                                    StatusText.Text = "Status: Limit Rejoin Tercapai!"
+                                    task.wait(1)
+                                    TeleportService:Teleport(game.PlaceId, LocalPlayer)
+                                    break
+                                end
+                            end
+                        else
+                            StatusText.Text = "Status: Gagal sampai ke pohon!"
+                        end
+                    end
+                end
+                task.wait(0.5) 
+            end
+        end)
+    else
+        AutoFarmBtn.Text = "Auto Farm: OFF ("..waterCount..")"
+        AutoFarmBtn.BackgroundColor3 = Color3.fromRGB(232, 65, 24)
+        StatusText.Text = "Status: Farming dihentikan."
+    end
+end
+
+AutoFarmBtn.MouseButton1Click:Connect(ToggleAutoFarm)
+
+-- ==========================================
+-- AUTO-START EXECUTION (SETELAH REJOIN/LOAD)
+-- ==========================================
+task.spawn(function()
+    StatusText.Text = "Status: Loading..."
+    
+    -- Tunggu hingga LocalPlayer benar-benar memiliki Character
+    if not LocalPlayer.Character then
+        LocalPlayer.CharacterAdded:Wait()
+    end
+    
+    -- Jeda aman untuk memastikan semua folder di Workspace ter-load
+    task.wait(8) 
+    
+    updatePlotList()
+    
+    if rollbackActive then
+        fireRollbackOnce()
+    end
+    
+    -- Logika pencarian pohon dengan retry yang sudah teruji
+    for i = 1, 5 do
+        if locateTargetPlant() then
+            StatusText.Text = "Status: Pohon ditemukan! Auto-Start..."
+            task.wait(1)
+            ToggleAutoFarm()
+            return -- Berhenti jika sudah berhasil
+        else
+            StatusText.Text = "Status: Mencari pohon (Percobaan " .. i .. "/5)..."
+            task.wait(3)
+        end
+    end
+    
+    StatusText.Text = "Status: Gagal menemukan pohon."
+end)
