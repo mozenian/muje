@@ -24,6 +24,32 @@ local Workspace = game:GetService("Workspace")
 local HttpService = game:GetService("HttpService")
 
 
+
+-- ==========================================
+-- TUTORIAL BYPASS (COPIED FROM MAIN KAITUN)
+-- ==========================================
+task.spawn(function()
+    for attempt = 1, 15 do
+        if workspace:GetAttribute("InTutorial") ~= true and LocalPlayer:GetAttribute("TutorialCompleted") == true then
+            break
+        end
+        pcall(function()
+            local Networking = require(game:GetService("ReplicatedStorage"):WaitForChild("SharedModules"):WaitForChild("Networking"))
+            if Networking and Networking.Tutorial and Networking.Tutorial.Complete then
+                Networking.Tutorial.Complete:Fire()
+            end
+        end)
+        pcall(function() workspace:SetAttribute("InTutorial", nil) end)
+        pcall(function() LocalPlayer:SetAttribute("TutorialCompleted", true) end)
+        pcall(function()
+            local ui = LocalPlayer:WaitForChild("PlayerGui", 5)
+            local tutUi = ui and ui:FindFirstChild("TutorialUI")
+            if tutUi then tutUi.Enabled = false end
+        end)
+        task.wait(1.5)
+    end
+end)
+
 -- ==========================================
 -- AUTO RECONNECT (ANTI-DISCONNECT)
 -- ==========================================
@@ -704,6 +730,7 @@ local destroyAllPlantsEnabled = false
 local muteAudioEnabled = false
 
 -- Mutation Filter State
+local mutationFilterEnabled = false
 local selectedMutations = {} -- {["Gold"] = true, ["Rainbow"] = true, ...}
 local harvestNoMutation = false -- Jika true, juga panen buah TANPA mutasi
 
@@ -723,6 +750,21 @@ local weatherPhaseOptions = {
     "-- NORMAL WEATHER --",
     "Lightning", "Lightning Storm", "Rain", "Snowfall", "Aurora", "Starfall", 
     "Eclipse", "Sunburst", "Rainbow", "Blizzard"
+}
+
+-- ==========================================
+-- AUTO TROWEL CONFIG + UI (satu tabel hemat local)
+-- ==========================================
+local Trowel = {
+    -- config
+    enabled = false,
+    mode = "Good", -- "Good" / "Player" / "Saved" / "Random"
+    seedFilter = "All", -- "All" atau nama seed spesifik (misal "Coconut")
+    savedPos = nil, -- Vector3, disimpan via tombol Save
+    moved = {}, -- plantModel → true, dedup pohon yang sudah dipindah
+    retries = {}, -- plantId → count, retry limit per pohon
+    pendingVerify = {}, -- plantId → {prePos, target}, async verification
+    delay = 0.1, -- delay antar move (detik), throttle server
 }
 
 local recentlyHarvested = setmetatable({}, {__mode = "k"})
@@ -797,6 +839,15 @@ local function loadConfig()
                 logoPos = UDim2.new(decoded.logoPosition.X.Scale, decoded.logoPosition.X.Offset, decoded.logoPosition.Y.Scale, decoded.logoPosition.Y.Offset)
                 if MinimizedLogo then MinimizedLogo.Position = logoPos end
             end
+
+            -- Auto Trowel config
+            Trowel.enabled = decoded.autoTrowel or false
+            Trowel.mode = decoded.trowelMode or "Good"
+            Trowel.seedFilter = decoded.trowelSelectedSeed or "All"
+            if decoded.trowelSavedPos then
+                Trowel.savedPos = Vector3.new(decoded.trowelSavedPos.X, decoded.trowelSavedPos.Y, decoded.trowelSavedPos.Z)
+            end
+            Trowel.delay = math.min(decoded.trowelDelay or 0.1, 0.3)
         end
     end
 end
@@ -830,6 +881,11 @@ local function saveConfig()
             selectedSprinklerTool = selectedSprinklerTool,
             selectedWaterOwner = selectedWaterOwner,
             selectedWaterSeed = selectedWaterSeed,
+            autoTrowel = Trowel.enabled,
+            trowelMode = Trowel.mode,
+            trowelSelectedSeed = Trowel.seedFilter,
+            trowelSavedPos = Trowel.savedPos and {X = Trowel.savedPos.X, Y = Trowel.savedPos.Y, Z = Trowel.savedPos.Z} or nil,
+            trowelDelay = Trowel.delay,
             logoPosition = {
                 X = {Scale = 0.5, Offset = 0}, 
                 Y = {Scale = 0.5, Offset = 0}
@@ -3471,7 +3527,160 @@ RefreshTargetsBtn.MouseButton1Click:Connect(function()
     task.delay(1, function() if RefreshTargetsBtn.Parent then RefreshTargetsBtn.Text = "Refresh Target List" end end)
 end)
 
--- Main Auto Water Background Loop
+-- ==========================================
+-- 9. AUTO TROWEL PLANT CARD
+-- ==========================================
+-- card fields merge into Trowel table above
+Trowel.card = createCard("TrowelCard", 260, 9)
+
+do
+    local t = Instance.new("TextLabel", Trowel.card)
+    t.Size = UDim2.new(1, -20, 0, 25); t.Position = UDim2.new(0, 10, 0, 5)
+    t.BackgroundTransparency = 1; t.Text = "AUTO TROWEL PLANT"
+    t.TextColor3 = Color3.fromRGB(168, 85, 247); t.Font = Enum.Font.GothamBold
+    t.TextSize = 11; t.TextXAlignment = Enum.TextXAlignment.Left; t.ZIndex = 10002
+end
+
+createToggle("Enable Auto Trowel", Trowel.card, 30, Trowel.enabled, function(state) Trowel.enabled = state end)
+
+-- Mode dropdown (Good / Player / Saved / Random)
+Trowel.modeOptions = {"Good", "Player", "Saved", "Random"}
+Trowel.modeBtn = Instance.new("TextButton", Trowel.card)
+Trowel.modeBtn.Size = UDim2.new(0.5, 0, 0, 24)
+Trowel.modeBtn.Position = UDim2.new(0.45, 0, 0, 68)
+Trowel.modeBtn.BackgroundColor3 = Color3.fromRGB(55, 65, 81)
+Trowel.modeBtn.Text = Trowel.mode
+Trowel.modeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Trowel.modeBtn.Font = Enum.Font.GothamBold
+Trowel.modeBtn.TextSize = 10
+Trowel.modeBtn.ZIndex = 10002
+Instance.new("UICorner", Trowel.modeBtn).CornerRadius = UDim.new(0, 6)
+
+Trowel.modeLbl = Instance.new("TextLabel", Trowel.card)
+Trowel.modeLbl.Size = UDim2.new(0.4, 0, 0, 22)
+Trowel.modeLbl.Position = UDim2.new(0, 10, 0, 70)
+Trowel.modeLbl.BackgroundTransparency = 1
+Trowel.modeLbl.Text = "Mode"
+Trowel.modeLbl.TextColor3 = Color3.fromRGB(156, 163, 175)
+Trowel.modeLbl.Font = Enum.Font.GothamMedium
+Trowel.modeLbl.TextSize = 10
+Trowel.modeLbl.TextXAlignment = Enum.TextXAlignment.Left
+Trowel.modeLbl.ZIndex = 10002
+
+Trowel.modeBtn.MouseButton1Click:Connect(function()
+    openDropdown("PILIH MODE", Trowel.modeOptions, function(selected)
+        Trowel.mode = selected
+        Trowel.modeBtn.Text = selected
+        task.spawn(saveConfig)
+    end)
+end)
+
+-- Seed filter dropdown
+Trowel.seedLbl = Instance.new("TextLabel", Trowel.card)
+Trowel.seedLbl.Size = UDim2.new(0.4, 0, 0, 22)
+Trowel.seedLbl.Position = UDim2.new(0, 10, 0, 100)
+Trowel.seedLbl.BackgroundTransparency = 1
+Trowel.seedLbl.Text = "Seed Filter"
+Trowel.seedLbl.TextColor3 = Color3.fromRGB(156, 163, 175)
+Trowel.seedLbl.Font = Enum.Font.GothamMedium
+Trowel.seedLbl.TextSize = 10
+Trowel.seedLbl.TextXAlignment = Enum.TextXAlignment.Left
+Trowel.seedLbl.ZIndex = 10002
+
+Trowel.seedBtn = Instance.new("TextButton", Trowel.card)
+Trowel.seedBtn.Size = UDim2.new(0.5, 0, 0, 24)
+Trowel.seedBtn.Position = UDim2.new(0.45, 0, 0, 98)
+Trowel.seedBtn.BackgroundColor3 = Color3.fromRGB(55, 65, 81)
+Trowel.seedBtn.Text = Trowel.seedFilter
+Trowel.seedBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Trowel.seedBtn.Font = Enum.Font.GothamBold
+Trowel.seedBtn.TextSize = 10
+Trowel.seedBtn.ZIndex = 10002
+Instance.new("UICorner", Trowel.seedBtn).CornerRadius = UDim.new(0, 6)
+
+Trowel.seedBtn.MouseButton1Click:Connect(function()
+    local seedOpts = {"All"}
+    local plotId = LocalPlayer:GetAttribute("PlotId")
+    if plotId then
+        local plot = Gardens:FindFirstChild("Plot" .. tostring(plotId))
+        if plot then
+            local seen = {}
+            for _, child in ipairs(plot:GetDescendants()) do
+                if child:IsA("Model") and child:GetAttribute("SeedName") then
+                    local sn = child:GetAttribute("SeedName")
+                    if not seen[sn] then seen[sn] = true; table.insert(seedOpts, sn) end
+                end
+            end
+        end
+    end
+    openDropdown("PILIH SEED", seedOpts, function(selected)
+        Trowel.seedFilter = selected
+        Trowel.seedBtn.Text = selected
+        task.spawn(saveConfig)
+    end)
+end)
+
+-- Save Position button
+Trowel.saveBtn = Instance.new("TextButton", Trowel.card)
+Trowel.saveBtn.Size = UDim2.new(0.9, 0, 0, 28)
+Trowel.saveBtn.Position = UDim2.new(0.05, 0, 0, 135)
+Trowel.saveBtn.BackgroundColor3 = Color3.fromRGB(88, 28, 135)
+Trowel.saveBtn.Text = "Save Current Position"
+Trowel.saveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Trowel.saveBtn.Font = Enum.Font.GothamBold
+Trowel.saveBtn.TextSize = 11
+Trowel.saveBtn.ZIndex = 10002
+Instance.new("UICorner", Trowel.saveBtn).CornerRadius = UDim.new(0, 6)
+
+Trowel.saveBtn.MouseButton1Click:Connect(function()
+    local char = LocalPlayer.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            Trowel.savedPos = hrp.Position
+            Trowel.saveBtn.Text = "Saved! (" .. math.floor(hrp.Position.X) .. ", " .. math.floor(hrp.Position.Z) .. ")"
+            task.spawn(saveConfig)
+            task.delay(2, function()
+                if Trowel.saveBtn.Parent then Trowel.saveBtn.Text = "Save Current Position" end
+            end)
+        end
+    end
+end)
+
+-- Reset moved plants button
+Trowel.resetBtn = Instance.new("TextButton", Trowel.card)
+Trowel.resetBtn.Size = UDim2.new(0.43, 0, 0, 24)
+Trowel.resetBtn.Position = UDim2.new(0.05, 0, 0, 170)
+Trowel.resetBtn.BackgroundColor3 = Color3.fromRGB(55, 65, 81)
+Trowel.resetBtn.Text = "Reset Moved"
+Trowel.resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Trowel.resetBtn.Font = Enum.Font.GothamBold
+Trowel.resetBtn.TextSize = 10
+Trowel.resetBtn.ZIndex = 10002
+Instance.new("UICorner", Trowel.resetBtn).CornerRadius = UDim.new(0, 6)
+
+Trowel.resetBtn.MouseButton1Click:Connect(function()
+    Trowel.moved = {}
+    Trowel.retries = {}
+    Trowel.resetBtn.Text = "Reset OK!"
+    task.delay(1, function() if Trowel.resetBtn.Parent then Trowel.resetBtn.Text = "Reset Moved" end end)
+end)
+
+-- Status label
+Trowel.status = Instance.new("TextLabel", Trowel.card)
+Trowel.status.Size = UDim2.new(0.9, 0, 0, 30)
+Trowel.status.Position = UDim2.new(0.05, 0, 0, 198)
+Trowel.status.BackgroundTransparency = 1
+Trowel.status.Text = "Status: OFF"
+Trowel.status.TextColor3 = Color3.fromRGB(107, 114, 128)
+Trowel.status.Font = Enum.Font.GothamMedium
+Trowel.status.TextSize = 10
+Trowel.status.TextWrapped = true
+Trowel.status.TextXAlignment = Enum.TextXAlignment.Left
+Trowel.status.ZIndex = 10002
+
+-- ==========================================
+-- AUTO WATER BACKGROUND LOOP
 task.spawn(function()
     local lastWaterTime = 0
     while true do
@@ -4158,6 +4367,230 @@ if ScreenGui.Parent then
         end
     end)
 end
+
+-- ==========================================
+-- AUTO TROWEL BACKGROUND LOOP
+-- ==========================================
+task.spawn(function()
+    local Networking = nil
+    pcall(function()
+        Networking = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Networking"))
+    end)
+    if not Networking or not Networking.Trowel then
+        warn("[AutoTrowel] Networking.Trowel tidak ditemukan")
+        return
+    end
+
+    local _ = nil -- placeholder (lastTrowelMove dihapus, throttle sudah tidak ada)
+
+    while true do
+        task.wait(0.1)
+        if not Trowel.enabled or not ScreenGui.Parent then continue end
+        if not Networking.Trowel.MovePlant then continue end
+
+        -- Cari plot pemain
+        local plotId = LocalPlayer:GetAttribute("PlotId")
+        if not plotId then
+            Trowel.status.Text = "Status: PlotId tidak ditemukan"
+            continue
+        end
+        local plot = Gardens:FindFirstChild("Plot" .. tostring(plotId))
+        if not plot then
+            Trowel.status.Text = "Status: Plot tidak ditemukan"
+            continue
+        end
+
+        -- Verifikasi async: cek pohon yang sudah ditandai moved
+        if Trowel.pendingVerify then
+            for pid, pv in pairs(Trowel.pendingVerify) do
+                if pv and pv.prePos then
+                    -- Cari model berdasarkan plantId (model.Name)
+                    local found = plot:FindFirstChild(pid)
+                    if found and found.PrimaryPart then
+                        local dist = (found.PrimaryPart.Position - pv.prePos).Magnitude
+                        if dist < 1 then
+                            -- Tidak berpindah → unmark + retry
+                            Trowel.moved[pid] = nil
+                            Trowel.retries[pid] = (Trowel.retries[pid] or 0) + 1
+                            if Trowel.retries[pid] >= 3 then
+                                Trowel.moved[pid] = true -- skip setelah 3x gagal
+                            end
+                        end
+                    end
+                    Trowel.pendingVerify[pid] = nil
+                end
+            end
+        end
+
+        -- Kumpulkan semua root plants (yang punya SeedName)
+        local allPlants = {}
+        local uniqueSeeds = {}
+        for _, child in ipairs(plot:GetDescendants()) do
+            if child:IsA("Model") and child:GetAttribute("SeedName") and child.PrimaryPart then
+                local seedName = child:GetAttribute("SeedName")
+                uniqueSeeds[seedName] = true
+                if not Trowel.moved[child.Name] then
+                    local sz = child:GetExtentsSize()
+                    local vol = sz.X * sz.Y * sz.Z
+                    table.insert(allPlants, {model = child, seed = seedName, vol = vol})
+                end
+            end
+        end
+
+        -- Filter by selected seed
+        local plants = {}
+        for _, p in ipairs(allPlants) do
+            if Trowel.seedFilter == "All" or p.seed == Trowel.seedFilter then
+                table.insert(plants, p)
+            end
+        end
+
+        -- Good mode: sort by volume terbesar → terkecil biar grid rapi
+        if Trowel.mode == "Good" and #plants > 1 then
+            table.sort(plants, function(a, b) return a.vol > b.vol end)
+        end
+
+        local moved = 0
+        for total in pairs(Trowel.moved) do moved = moved + 1 end
+        local statusText = string.format("Moved: %d | To Move: %d | Seeds: %d", moved, #plants, (function() local c=0; for _ in pairs(uniqueSeeds) do c=c+1 end; return c end)())
+        if #plants == 0 then
+            Trowel.status.Text = "Status: " .. statusText .. " | DONE ✓ — Klik Reset untuk pindah lagi"
+            continue
+        end
+        Trowel.status.Text = "Status: " .. statusText .. " | Moving..."
+
+        -- Hitung target positions berdasarkan mode
+        local positions = {}
+        local psr = plot:FindFirstChild("PlotSizeReference")
+        if Trowel.mode == "Good" then
+            -- Grid rapi: sort by volume, spacing tetap (GetExtents includes fruits,too big)
+            if psr and psr:IsA("BasePart") then
+                local cf = psr.CFrame
+                local sz = psr.Size
+                local halfX = sz.X / 2 - 3
+                local halfZ = sz.Z / 2 - 3
+                -- Y baseline dari ground
+                local groundY = cf.Position.Y
+                local hrpChar = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if hrpChar then groundY = hrpChar.Position.Y - 3 end
+
+                local count = #plants
+                local cols = math.ceil(math.sqrt(count * (sz.X / sz.Z)))
+                local rows = math.ceil(count / cols)
+                local spacingX = (halfX * 2) / math.max(cols, 1)
+                local spacingZ = (halfZ * 2) / math.max(rows, 1)
+
+                local idx = 1
+                for r = 0, rows - 1 do
+                    for c = 0, cols - 1 do
+                        if idx > count then break end
+                        local localX = -halfX + spacingX * (c + 0.5)
+                        local localZ = -halfZ + spacingZ * (r + 0.5)
+                        local worldPos = cf * Vector3.new(localX, 0, localZ)
+                        positions[idx] = Vector3.new(worldPos.X, groundY, worldPos.Z)
+                        idx = idx + 1
+                    end
+                    if idx > count then break end
+                end
+            end
+        elseif Trowel.mode == "Player" then
+            -- Semua pohon numpuk di posisi player (biar kena siram semua)
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                for i = 1, #plants do
+                    positions[i] = hrp.Position
+                end
+            end
+        elseif Trowel.mode == "Saved" then
+            if Trowel.savedPos then
+                for i = 1, #plants do
+                    positions[i] = Trowel.savedPos
+                end
+            end
+        elseif Trowel.mode == "Random" then
+            if psr and psr:IsA("BasePart") then
+                local cf = psr.CFrame
+                local sz = psr.Size
+                local halfX = sz.X / 2 - 3
+                local halfZ = sz.Z / 2 - 3
+                local groundY = cf.Position.Y
+                local hrpRand = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if hrpRand then groundY = hrpRand.Position.Y - 3 end
+                for i = 1, #plants do
+                    local rx = (math.random() - 0.5) * 2 * halfX
+                    local rz = (math.random() - 0.5) * 2 * halfZ
+                    local worldPos = cf * Vector3.new(rx, 0, rz)
+                    positions[i] = Vector3.new(worldPos.X, groundY, worldPos.Z)
+                end
+            end
+        end
+
+        -- Pindahkan satu per satu dengan throttle
+        for i, plantData in ipairs(plants) do
+            if not Trowel.enabled then break end
+            if not ScreenGui.Parent then break end
+
+            local model = plantData.model
+            local plantId = model.Name
+            local targetPos = positions[i]
+
+            if not targetPos or not model or not model.Parent then continue end
+
+            -- Pastikan Trowel ter-equip sebelum fire
+            local char = LocalPlayer.Character
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+            local equipped = char and char:FindFirstChildWhichIsA("Tool")
+            local hasTrowelEquipped = equipped and equipped:GetAttribute("Trowel")
+            if not hasTrowelEquipped and humanoid then
+                local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+                if backpack then
+                    for _, tool in ipairs(backpack:GetChildren()) do
+                        if tool:IsA("Tool") and tool:GetAttribute("Trowel") then
+                            humanoid:EquipTool(tool)
+                            task.wait(0.15)
+                            break
+                        end
+                    end
+                end
+            end
+            -- Cek ulang setelah equip attempt
+            equipped = char and char:FindFirstChildWhichIsA("Tool")
+            if not equipped or not equipped:GetAttribute("Trowel") then
+                Trowel.status.Text = "Status: Trowel tidak ditemukan!"
+                continue
+            end
+
+            -- Fire langsung, throttle dihapus biar cepat (0.03s render wait sudah cukup)
+
+            -- Async verify: cek posisi sebelumnya, verifikasi di iterasi berikutnya
+            local prePos = model.PrimaryPart and model.PrimaryPart.Position
+            Trowel.pendingVerify = Trowel.pendingVerify or {}
+            Trowel.pendingVerify[plantId] = {prePos = prePos, target = targetPos}
+
+            -- Fire remote (model.Name = unique ID, bukan PlantId!)
+            local ok, err = pcall(function()
+                Networking.Trowel.MovePlant:Fire(model.Name, targetPos, 0)
+            end)
+
+            if ok then
+                Trowel.moved[plantId] = true
+                local movedNow = 0
+                for _ in pairs(Trowel.moved) do movedNow = movedNow + 1 end
+                Trowel.status.Text = string.format("Status: Moved %d/%d | %s", movedNow, movedNow + #plants - i, plantData.seed)
+            else
+                warn("[AutoTrowel] Fire gagal:", err)
+            end
+
+            task.wait(0.03) -- beri jeda antar move biar render
+        end
+
+        -- Selesai
+        local movedFinal = 0
+        for _ in pairs(Trowel.moved) do movedFinal = movedFinal + 1 end
+        Trowel.status.Text = "Status: Selesai! " .. movedFinal .. " pohon dipindah"
+    end
+end)
 
 -- ==========================================
 -- GARDEN VALUE SCANNER (FULL PROTECT)
