@@ -5,9 +5,11 @@
     baris di sini. Tidak perlu obfus ulang, tidak perlu loader baru, dan buyer
     tidak perlu mengganti loadstring mereka.
 
-    KUNCINYA PlaceId, BUKAN GameId. Seluruh dunia di bawah ini berbagi universeId
-    10200395747, jadi game.GameId identik untuk semuanya dan tidak bisa membedakan
-    apa pun.
+    KUNCINYA PlaceId, BUKAN GameId. Grow a Garden 2 dan Fall Harvest berbagi
+    universeId 10200395747, jadi game.GameId identik untuk keduanya dan tidak bisa
+    membedakan apa pun. Pet Simulator 99 memang universe lain (3317771874), tapi
+    itu tidak mengubah aturannya -- tetap PlaceId, supaya satu cara saja untuk
+    semua game dan tidak ada cabang khusus yang harus diingat.
 
     PENTING -- SATU DUNIA PUNYA BANYAK PLACE.
     Grow a Garden 2 berjalan di beberapa shard (🌶 🌱 🍅). Saat pemain masuk ke
@@ -49,6 +51,12 @@ local API = "https://mozeframe.my.id/api/script?key=" .. HttpService:UrlEncode(a
 local GAG2 = API .. "w1"
 local FALL = API .. "w2"
 
+-- Pet Simulator 99 -- MASIH TERBATAS. Server hanya menyerahkan f=ps99 untuk key
+-- khususnya (PS99_KEY di hwid_bot.py); panel key buyer yang sah pun dibalas 403
+-- berupa komentar Lua yang tak berbahaya. Jadi baris-baris PS99 di bawah aman
+-- berada di berkas publik ini: yang bocor cuma PlaceId, bukan script-nya.
+local PS99 = API .. "ps99"
+
 --[[
     BUKAN "shard". Nama itu keliru dan sempat menyesatkan.
 
@@ -83,7 +91,31 @@ local Games = {
     [126987765280963] = FALL,   -- FallHarvest        (pemain normal)
     [129343810645058] = FALL,   -- FallHarvestBotUser (karantina bot)
 
+    -- ---- Pet Simulator 99 (universe 3317771874) ----
+    -- Empat "world" PS99 adalah PLACE TERPISAH, bukan zona dalam satu place.
+    -- Pindah world = pindah place, script mati dan harus dieksekusi ulang di sana
+    -- -- karena itu keempatnya dipetakan, bukan cuma World 1.
+    --
+    -- Sumbernya bukan tebakan: require(ReplicatedStorage.Library.Modules.PlaceFile)
+    -- punya tabel LocalPlaces berisi 14 place, dan __DIRECTORY.Worlds memberi
+    -- PlaceId tiap world. Ambil ulang dari sana kalau BIG Games menambah world.
+    [8737899170]      = PS99,   -- World 1
+    [16498369169]     = PS99,   -- World 2
+    [17503543197]     = PS99,   -- World 3
+    [140403681187145] = PS99,   -- World 4 (Fantasy World -- di sinilah Fiesta Maze)
+    [130404940988186] = PS99,   -- BotWorld1 (KARANTINA BOT)
+
     -- ---- SENGAJA TIDAK DIPETAKAN ----
+    -- PS99, dari PlaceFile.LocalPlaces -- semuanya bukan tempat farm:
+    --   [131952481663528] HalloweenWorld     world event musiman, script belum diuji
+    --   [119454325063278] FarmingWorld       mode terpisah, bukan world biasa
+    --   [95635359880599]  FishingEvent       minigame
+    --   [99703032952567]  TowerDefenseLobby  minigame
+    --   [15502339080]     Trading            trading
+    --   [15588442388]     ProTrading         trading
+    --   [90139951126997]  Merchandise        toko
+    --   [13764885284]     Holding            place transit
+    --
     -- [107289568786498] Grow a Garden [Staging]  -- place pengembang, bukan untuk bot
     -- [112469282445074] PetHunt                  -- minigame, belum ada script-nya
     -- [137395689498699] PetHuntFallHarvest       -- idem. Environment.isPetHuntPlace
