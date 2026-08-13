@@ -240,7 +240,7 @@ local Config = {
     -- -- ia memindahkan yang sudah kamu punya ke rak supaya bisa terjual. Beda
     -- dari fitur toko lain di atas yang semuanya default MATI karena membelanjakan.
     AutoRestok = true,
-    JedaRestok = 20,    -- detik antar pemeriksaan etalase
+    JedaRestok = 300,    -- detik antar pemeriksaan etalase
 
     -- Isi ulang hanya kalau sisa di rak <= angka ini.
     --
