@@ -1146,7 +1146,7 @@ end)
 -- mengisi rak orang lain akan ditolak tanpa pernah jelas kenapa.
 task.spawn(function()
     while true do
-        task.wait(Config.JedaRestok or 20)
+        task.wait(Config.JedaRestok or 300)
         if Config.AutoRestok then
             -- DISARING DULU sebelum minta giliran, dan ini yang mencegah
             -- perjalanan sia-sia.
