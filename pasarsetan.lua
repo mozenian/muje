@@ -21,7 +21,7 @@
 -- membedakan "perbaikannya gagal" dari "yang jalan masih salinan lama".
 -- Cocokkan angka di bawah dengan yang tercetak di konsol SEBELUM menyimpulkan
 -- apa pun. Aturan yang sama berlaku di hwid_bot.py.
-local BUILD = "2026-08-07h"
+local BUILD = "2026-08-13m"
 print("[MOZE PASAR SETAN] BUILD " .. BUILD .. " | pungut=per-jenis | noclip=HRP | ambil=0stud+ulang | saklar-fitur-ikut-tersimpan")
 
 local Fluent = loadstring(game:HttpGet(
@@ -55,10 +55,39 @@ local Config = {
     -- Angka bawaan mengikuti contohmu (kumpul 5, tanam 4, masak 3). Yang sama
     -- angkanya bergantian menurut siapa yang minta duluan, jadi kalau mau
     -- urutannya pasti, beri angka yang berbeda.
+    -- Nama internal berbeda dari sebutan sehari-hari, jadi dipetakan di sini:
+    --   kumpul = farm/auto collect      toko   = buy
+    --   potong = potong gagak
     Prioritas = {
-        kumpul = 5, tanam = 4, masak = 3, panen = 2, potong = 2,
-        siram = 1, toko = 1,
+        kumpul = 5,   -- farm
+        tanam  = 5,
+        restok = 4,
+        siram  = 4,
+        toko   = 3,   -- buy
+        panen  = 3,
+        masak  = 1,
+        potong = 1,   -- gagak
     },
+
+    -- PENUAAN ANTREAN. Ini yang membuat "farm secukupnya" bekerja.
+    --
+    -- Tanpa ini, angka tertinggi yang selalu punya kerjaan tidak pernah
+    -- melepaskan: kumpul (5) menang di SETIAP putaran, dan masak (1) tidak akan
+    -- pernah jalan seumur sesi. Menaikkan angka yang lain cuma memindahkan
+    -- masalahnya ke fitur lain.
+    --
+    -- Cara kerjanya: tiap fitur yang menunggu mendapat tambahan 1 angka untuk
+    -- setiap PenuaanDetik ia mengantre. Jadi masak (1) yang sudah menunggu 24
+    -- detik efektif jadi 1 + 3 = 4, dan pada 32 detik jadi 5 -- ia akhirnya
+    -- menyusul kumpul dan dapat giliran. Begitu selesai, angkanya kembali ke 1
+    -- dan kumpul lanjut lagi.
+    --
+    -- Hasilnya persis urutan yang kamu minta -- yang tinggi dikerjakan dulu,
+    -- yang di bawahnya menyusul setelah gilirannya lewat -- tanpa ada yang
+    -- kelaparan. Perbesar angkanya kalau mau farm lebih dominan; perkecil kalau
+    -- mau giliran berputar lebih cepat.
+    PenuaanDetik = 8,
+    PenuaanMaks  = 4,   -- batas tambahan, supaya urutan dasarnya tidak terbalik total
     BatasGiliran     = 20,  -- detik; pemegang yang lebih lama dari ini dicabut paksa
     BatasAntre       = 30,  -- detik; yang menunggu lebih lama dari ini menyerah dulu
     JedaKumpulAntre  = 0.6, -- detik; jeda supaya yang berangka tinggi sempat ikut antre
@@ -99,11 +128,20 @@ local Config = {
     BatasVerifikasi = 3,   -- detik; terukur barang masuk 55 ms s/d >2,5 detik
 
     JedaAmbil   = 0.6,   -- detik antar pungutan; hold prompt-nya sendiri 0.5
-    JarakAmbil  = 0,     -- stud; menempel ke barangnya supaya jarak tidak pernah
-                         -- jadi alasan penolakan. Terbang berhenti di 2 stud
-                         -- (mustahil pas 0 sambil bergerak), lalu CFrame
-                         -- menempelkan sisanya.
-    SnapKeBarang = true, -- tempelkan CFrame ke titik barang tiap percobaan
+    -- Jarak berhenti terbang dari titik tujuan. Tujuannya sendiri sudah
+    -- TinggiTerbang stud di atas barang, jadi jarak akhir ke barang = tinggi + ini.
+    JarakAmbil  = 0,
+
+    -- SnapKeBarang dan MaksSnap DIHAPUS (2026-08-13).
+    --
+    -- Keduanya menambal celah yang seharusnya tidak pernah ada: karakter berhenti
+    -- 6-8 stud dari barang sementara prompt cuma menerima 6, lalu CFrame
+    -- menempelkan sisanya. Tempelan itu dibaca server sebagai teleport dan
+    -- memicu kick "aktivitas tidak wajar" -- tiga kali berturut, selalu di detik
+    -- ke-48. Celahnya kini ditutup di sumbernya lewat TinggiTerbang 6 -> 3, jadi
+    -- penambalnya tidak punya alasan untuk ada. Config mati lebih berbahaya
+    -- daripada tidak ada: ia mengundang orang menyalakannya lagi.
+
     BatasAmbil   = 8,    -- detik bertahan di satu barang sebelum menyerah
     JedaCoba     = 0.8,  -- detik antar percobaan di barang yang sama
     RadiusCari  = 800,   -- stud; terukur, seluruh 81 bahan ada dalam radius ini
@@ -118,7 +156,20 @@ local Config = {
     -- Terbang rendah juga jauh kurang kentara daripada melayang 25 stud di atas
     -- pasar.
     Noclip = true,
-    TinggiTerbang = 6,   -- ketinggian melayang di atas bahan saat memungut
+    -- Ketinggian melayang di atas bahan saat memungut.
+    --
+    -- DIturunkan 6 -> 3, dan ini akar dari hampir semua masalah kemarin.
+    -- MaxActivationDistance prompt = 6 stud (terukur dari GameConfig.Forage dan
+    -- dari prompt aslinya). terbangKe berhenti saat jaraknya <= 2 stud dari titik
+    -- tujuan, jadi dengan tinggi 6 karakter mendarat 6-8 stud dari barang --
+    -- TEPAT DI BATAS ATAU DI LUARNYA. Pungutan gagal bukan karena timing, tapi
+    -- karena posisinya memang tidak pernah cukup dekat.
+    --
+    -- Itu pula yang membuat snap CFrame diperlukan dulu: ia menambal celah
+    -- terakhir. Dan snap itulah yang memicu kick "aktivitas tidak wajar", karena
+    -- server melihat teleport. Dengan 3, jarak akhirnya 1-5 stud -- aman di dalam
+    -- 6 -- sehingga prompt bisa ditembak tanpa memindahkan karakter sama sekali.
+    TinggiTerbang = 3,
     -- Terukur: 46 kursi di peta, puncak tertinggi Y=112, tanah ~113. Naik 25
     -- stud di atas titik tertinggi rute membuat seluruh perjalanan lewat di
     -- atas semuanya, bukan menembusnya.
@@ -178,6 +229,30 @@ local Config = {
 
     JedaBeli = 1.5,
     JedaTokoIdle = 15,  -- terukur: restock tiap ~80 detik, jadi tidak perlu rapat
+
+    -- Isi ulang etalase lapak sendiri dari tas.
+    --
+    -- Etalasenya bukan remote, melainkan prompt "Taruh <barang>" di dalam kios:
+    -- Rak.RakDupa / RakMelati / RakKemenyan dan MejaMakan.JamurKuburan /
+    -- SateGagak, semuanya hold 0,40 dan maxDist 6 (terukur langsung).
+    --
+    -- Aman menyala default: menaruh barang TIDAK menghabiskan Koin maupun Shard
+    -- -- ia memindahkan yang sudah kamu punya ke rak supaya bisa terjual. Beda
+    -- dari fitur toko lain di atas yang semuanya default MATI karena membelanjakan.
+    AutoRestok = true,
+    JedaRestok = 20,    -- detik antar pemeriksaan etalase
+
+    -- Isi ulang hanya kalau sisa di rak <= angka ini.
+    --
+    -- Dibaca SETELAH sampai di rak, bukan sebelum berangkat: StokDisplay adalah
+    -- Folder ber-_culled=true selama kita jauh -- isinya belum dimuat sama
+    -- sekali, jadi mustahil dibaca dari jarak jauh (terukur). Yang menyaring
+    -- keberangkatan tetap "ada tidaknya barang di tas".
+    --
+    -- Kalau angkanya tidak terbaca, rak TETAP diisi. Lebih baik mengisi rak yang
+    -- sebenarnya masih cukup daripada membiarkan dagangan kosong karena satu
+    -- label gagal dibaca.
+    AmbangRestok = 2,
 
     -- Teleport bawaan game. Nama tujuan HURUF KECIL -- terbukti dari balasan
     -- TeleportGoto: "kios" dikenal, "Kios"/"KIOS"/"kiosk" tidak.
@@ -381,6 +456,13 @@ local MIN_LEVEL = {
 local Status = {
     kumpul = false, masak = false, potong = false,
     panen = false, tanam = false, siram = false, toko = false,
+    -- restok WAJIB ada di sini, bukan cuma di Config.
+    --
+    -- mintaGiliran() berjalan di dalam `while Status[fitur]`, jadi fitur yang
+    -- tidak punya kunci di tabel ini mengembalikan false seketika dan tidak
+    -- pernah dapat giliran sama sekali. Nilainya disinkronkan dengan
+    -- Config.AutoRestok di loop restok.
+    restok = false,
     dipungut = 0, dipanen = 0, ditanam = 0, dibeli = 0,
     mandek = false,
     terakhir = "-",
@@ -449,7 +531,9 @@ end
 -- Mengembalikan true kalau giliran didapat. false berarti fiturnya dimatikan
 -- atau kelamaan menunggu -- pemanggilnya harus berhenti, bukan lanjut jalan.
 local function mintaGiliran(fitur, batasTunggu)
-    antreGiliran[fitur] = true
+    -- Menyimpan STEMPEL WAKTU, bukan true: penuaan butuh tahu SEJAK KAPAN fitur
+    -- ini mengantre. Nilai true yang lama membuat lama-menunggu tidak terukur.
+    antreGiliran[fitur] = antreGiliran[fitur] or tick()
     local mulai = tick()
     while Status[fitur] do
         -- Pemegang yang tidak melepas -- misalnya loop-nya error di tengah --
@@ -458,9 +542,22 @@ local function mintaGiliran(fitur, batasTunggu)
             pemegang = nil
         end
         if not pemegang then
+            -- Angka efektif = angka dasar + penuaan.
+            --
+            -- Yang menunggu lama naik pelan-pelan sampai bisa menyusul yang
+            -- berangka tinggi. Tanpa ini kumpul (5) menang di tiap putaran dan
+            -- masak (1) tidak pernah jalan seumur sesi -- persis keluhan "farm
+            -- terus-terusan tanpa memperhatikan task lain".
+            local function efektif(f)
+                local tunggu = tick() - (antreGiliran[f] or tick())
+                local tambah = math.min(Config.PenuaanMaks or 4,
+                    math.floor(tunggu / math.max(1, Config.PenuaanDetik or 8)))
+                return prioritas(f) + tambah
+            end
+
             local menang = fitur
             for f in pairs(antreGiliran) do
-                if Status[f] and prioritas(f) > prioritas(menang) then menang = f end
+                if Status[f] and efektif(f) > efektif(menang) then menang = f end
             end
 
             -- Jeda pengumpulan sebelum yang berangka rendah boleh menang.
@@ -862,6 +959,65 @@ local function pergiKe(posisi, batasDetik)
     return terbangKe(tujuan, 8)
 end
 
+-- MENAHAN prompt, bukan menembaknya.
+--
+-- INI PERBAIKAN TERPENTING HARI INI. Game (Sindu) menambahkan penegakan hold:
+-- fireproximityprompt hanya memalsukan picu sesaat, dan server kini menolaknya.
+-- Terbukti langsung di akun nyata -- prompt yang sama, jarak 3,1 stud:
+--
+--     fireproximityprompt(prompt)                    -> tas 825, tidak berubah
+--     fireproximityprompt(prompt, HoldDuration)      -> tas 825, tidak berubah
+--     InputHoldBegin() .. tunggu .. InputHoldEnd()   -> tas 825 -> 826  BERHASIL
+--
+-- Efek berantainya besar: tembakan yang selalu ditolak itu menumpuk di sisi
+-- server sampai memicu kick "Terdeteksi aktivitas tidak wajar". Jadi ini bukan
+-- cuma memperbaiki pungutan -- ia mencabut sumber kick-nya.
+--
+-- fireproximityprompt disimpan sebagai cadangan untuk executor yang tidak
+-- mengizinkan InputHoldBegin, tapi urutannya sengaja: yang benar dulu.
+-- Posisi DIKUNCI selama menahan.
+--
+-- Menahan butuh waktu (HoldDuration + margin), dan selama itu karakter bisa
+-- hanyut: Kepiting Sungai berada DI DALAM AIR dan daya apung mendorong karakter
+-- naik terus. Begitu ia terseret lebih dari 6 stud, prompt keluar jangkauan di
+-- tengah tahanan dan seluruh tahanan itu terbuang. Dulu ini ditambal dengan
+-- CFrame yang ditempelkan tiap percobaan -- dan CFrame itulah yang dibaca server
+-- sebagai teleport lalu memicu kick.
+--
+-- BodyPosition dipakai, bukan Anchored dan bukan CFrame: ia gaya FISIK, jenis
+-- yang sama dengan yang dipakai terbang dan sudah terbukti diterima server.
+-- Dipasang sebelum menahan, dibuang sesudahnya, jadi tidak ada sisa yang
+-- mengunci karakter di luar momen memungut.
+local function tahanPrompt(prompt)
+    if not prompt then return false end
+    local durasi = (prompt.HoldDuration or 0) + 0.25
+
+    local penahan
+    local _, hrp = karakter()
+    if hrp then
+        penahan = Instance.new("BodyPosition")
+        penahan.MaxForce = Vector3.new(1, 1, 1) * 1e6
+        penahan.P = 20000
+        penahan.D = 1200
+        penahan.Position = hrp.Position
+        penahan.Parent = hrp
+    end
+    local function lepas()
+        if penahan then pcall(function() penahan:Destroy() end) penahan = nil end
+    end
+
+    local ok = pcall(function() prompt:InputHoldBegin() end)
+    if ok then
+        task.wait(durasi)
+        pcall(function() prompt:InputHoldEnd() end)
+        lepas()
+        return true
+    end
+    local hasil = pcall(fireproximityprompt, prompt)
+    lepas()
+    return hasil
+end
+
 -- Klaim lapak / lahan.
 --
 -- Bukan lewat remote -- terukur, tidak ada satu pun remote bernuansa claim.
@@ -898,10 +1054,204 @@ local function klaimKosong(namaFolder, label)
     end
 
     -- Satu tembakan, pola yang sama dengan pemungutan bahan.
-    pcall(fireproximityprompt, terdekat)
+    tahanPrompt(terdekat)
     task.wait(1.5)
     return true, "prompt klaim ditembak"
 end
+
+-- PENGINTAI KLAIM -- berdiri sendiri, tidak ikut antre giliran.
+--
+-- klaimKosong() dulu HANYA dipanggil dari dalam loopMasak dan loopKebun, jadi
+-- ia baru jalan setelah loop itu memenangkan mintaGiliran() dan melewati
+-- JedaMasak (3 detik). Lapak yang kosong keburu diambil pemain lain dalam
+-- jeda itu -- persis laporan buyer: "ga langsung ke-claim, jadi miss".
+--
+-- Yang di sini sengaja TIDAK meminta giliran dan TIDAK memindahkan karakter:
+-- ia hanya menembak prompt yang SUDAH berada dalam jangkauan aslinya. Menembak
+-- prompt tidak menyentuh kendali gerak sama sekali, jadi tidak ada yang bisa
+-- direbut dari loop lain -- itu syarat supaya aman dijalankan sesering ini.
+--
+-- Yang jauh tetap ditangani loop lama, yang memang boleh berjalan mendekat.
+local function promptKlaimDekat(namaFolder)
+    local folder = workspace:FindFirstChild(namaFolder)
+    if not folder then return nil end
+    local _, hrp = karakter()
+    if not hrp then return nil end
+
+    for _, d in ipairs(folder:GetDescendants()) do
+        if d:IsA("ProximityPrompt") and d.Enabled then
+            local teks = string.lower((d.ActionText or "") .. " " .. (d.ObjectText or ""))
+            if string.find(teks, "klaim", 1, true) or string.find(teks, "claim", 1, true) then
+                local part = d.Parent
+                if part and part:IsA("BasePart")
+                    and (part.Position - hrp.Position).Magnitude <= d.MaxActivationDistance then
+                    return d
+                end
+            end
+        end
+    end
+    return nil
+end
+
+task.spawn(function()
+    -- Jeda setelah menembak, per jenis.
+    --
+    -- Terukur di produksi: satu klaim berhasil menghasilkan SIX tembakan dalam
+    -- 1,5 detik, karena punyaKios() baru mengembalikan true beberapa saat setelah
+    -- server mendaftarkan lapaknya. Tanpa jeda ini pengintai menembak terus
+    -- selama celah itu -- persis pola tembakan beruntun yang di bagian pemungutan
+    -- sudah terbukti membuat server MENOLAK semuanya.
+    local tembakTerakhir = {}
+    local JEDA_SESUDAH_TEMBAK = 3
+
+    -- 0.3 detik: cukup rapat untuk menang balapan dengan pemain lain.
+    while true do
+        task.wait(0.3)
+        if Config.AutoKlaim then
+            pcall(function()
+                local function coba(kunci, folder, punya, label)
+                    if punya() then return end
+                    if tick() - (tembakTerakhir[kunci] or 0) < JEDA_SESUDAH_TEMBAK then return end
+                    local p = promptKlaimDekat(folder)
+                    if p then
+                        tembakTerakhir[kunci] = tick()
+                        tahanPrompt(p)
+                        lapor("Klaim " .. label .. " ditembak (pengintai)")
+                    end
+                end
+                coba("kios", "KiosPlot", punyaKios, "lapak")
+                coba("lahan", "LahanPlot", punyaLahan, "lahan")
+            end)
+        end
+    end
+end)
+
+
+-- =========================================================
+-- AUTO RESTOK ETALASE
+-- =========================================================
+-- Mengisi ulang rak lapak sendiri dari tas, supaya dagangan tidak pernah kosong.
+--
+-- Bukan lewat remote -- tidak ada satu pun remote bernuansa restok; yang ada
+-- prompt "Taruh <barang>" DI DALAM kios sendiri. Terukur langsung:
+--
+--   Rak.RakDupa        [Taruh Dupa]                 hold=0.40 maxDist=6
+--   Rak.RakMelati      [Taruh Bunga Melati]         hold=0.40 maxDist=6
+--   Rak.RakKemenyan    [Taruh Kemenyan]             hold=0.40 maxDist=6
+--   MejaMakan.JamurKuburan [Taruh Jamur Rebus ...]  hold=0.40 maxDist=6
+--   MejaMakan.SateGagak    [Taruh Sate Gagak]       hold=0.40 maxDist=6
+--
+-- Dicari di Kios_<nama sendiri>, BUKAN prompt "Taruh" pertama yang ketemu:
+-- workspace.KiosAktif memuat kios seluruh pemain server (terukur 19 kios), dan
+-- mengisi rak orang lain akan ditolak tanpa pernah jelas kenapa.
+task.spawn(function()
+    while true do
+        task.wait(Config.JedaRestok or 20)
+        if Config.AutoRestok then
+            -- DISARING DULU sebelum minta giliran, dan ini yang mencegah
+            -- perjalanan sia-sia.
+            --
+            -- Sisa stok di rak TIDAK bisa dibaca dari jauh: StokDisplay adalah
+            -- Folder ber-_culled=true selama kita belum dekat, isinya belum
+            -- dimuat sama sekali (terukur). Jadi ambang "sisa 5" mustahil
+            -- dijadikan syarat berangkat.
+            --
+            -- Yang BISA dibaca dari jauh adalah isi tas. Kalau tidak ada satu
+            -- pun barang rak di tas, tidak ada yang bisa ditaruh -- jadi jangan
+            -- ambil giliran dan jangan terbang. Itu menutup kasus terbesar
+            -- "terbang padahal tidak ada gunanya", dan membuat task lain lanjut.
+            local ka = workspace:FindFirstChild("KiosAktif")
+            local kios = ka and ka:FindFirstChild("Kios_" .. LocalPlayer.Name)
+            local adaIsi = false
+            if kios then
+                for _, d in ipairs(kios:GetDescendants()) do
+                    if d:IsA("ProximityPrompt") and d.Enabled
+                        and tostring(d.ActionText):find("Taruh", 1, true) then
+                        local barang = tostring(d.ObjectText or "")
+                        if barang ~= "" then
+                            for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
+                                if tostring(t.Name):find(barang, 1, true) then adaIsi = true break end
+                            end
+                        end
+                    end
+                    if adaIsi then break end
+                end
+            end
+
+            -- Ikut antre seperti fitur lain, jadi ia tidak lagi menarik karakter
+            -- ke rak saat kumpul sedang di seberang peta. Prioritas restok = 4.
+            -- Status disinkronkan dengan Config supaya mintaGiliran punya kunci
+            -- yang benar, dan supaya penuaan antrean melihat restok sebagai
+            -- fitur aktif seperti yang lain.
+            Status.restok = Config.AutoRestok and adaIsi or false
+            if adaIsi and mintaGiliran("restok") then
+            pcall(function()
+                if not kios then return end
+
+                for _, d in ipairs(kios:GetDescendants()) do
+                    if not Config.AutoRestok then return end
+                    if d:IsA("ProximityPrompt") and d.Enabled
+                        and tostring(d.ActionText):find("Taruh", 1, true) then
+
+                        local induk = d.Parent
+                        local titik = induk and (induk:IsA("BasePart") and induk.Position
+                            or (induk:IsA("Model") and induk:GetPivot().Position))
+                        local _, h = karakter()
+                        if titik and h then
+                            -- Prompt maxDist 6; didekati dulu kalau di luar itu.
+                            if (titik - h.Position).Magnitude > d.MaxActivationDistance then
+                                pergiKe(titik, 10)
+                            end
+                            local _, h2 = karakter()
+                            if h2 and (titik - h2.Position).Magnitude <= d.MaxActivationDistance then
+                                -- Sisa stok dibaca DI SINI, sesudah dekat.
+                                --
+                                -- Dari jauh mustahil: StokDisplay masih Folder
+                                -- ber-_culled=true dan isinya belum ada. Begitu
+                                -- dekat, game memuat labelnya.
+                                --
+                                -- Formatnya belum pernah terlihat terisi, jadi
+                                -- angka PERTAMA yang ditemukan dipakai, dan teks
+                                -- mentahnya dicetak sekali supaya bisa kucocokkan
+                                -- dari console. Menebak formatnya lalu diam-diam
+                                -- salah jauh lebih mahal daripada satu baris log.
+                                local sisa, mentah
+                                local sd = induk and induk:FindFirstChild("StokDisplay")
+                                if sd then
+                                    for _, x in ipairs(sd:GetDescendants()) do
+                                        if (x:IsA("TextLabel") or x:IsA("TextBox"))
+                                            and tostring(x.Text) ~= "" then
+                                            mentah = tostring(x.Text)
+                                            sisa = tonumber(mentah:match("%d+"))
+                                            break
+                                        end
+                                    end
+                                end
+
+                                local ambang = tonumber(Config.AmbangRestok) or 2
+                                if sisa and sisa > ambang then
+                                    lapor(string.format("Rak %s masih %d (>%d) — dilewati",
+                                        tostring(d.ObjectText), sisa, ambang))
+                                else
+                                    -- tahanPrompt, bukan fireproximityprompt: game ini
+                                    -- menegakkan hold, dan tembakan sesaat selalu ditolak.
+                                    tahanPrompt(d)
+                                    lapor(string.format("Restok %s (sisa %s%s)",
+                                        tostring(d.ObjectText),
+                                        sisa and tostring(sisa) or "tak terbaca",
+                                        mentah and (" | label=\"" .. mentah .. "\"") or ""))
+                                    task.wait(0.4)
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+            lepasGiliran("restok")
+            end
+        end
+    end
+end)
 
 
 -- =========================================================
@@ -1056,7 +1406,7 @@ local function tembakPrompt(part, paksa)
     -- lebih awal begitu naik, yang cepat tetap dibayar 55 ms saja.
     local nama = namaTampilan(part)
     local sebelum = jumlahItem(nama)
-    pcall(fireproximityprompt, prompt)
+    tahanPrompt(prompt)
 
     local batas = os.clock() + Config.BatasVerifikasi
     repeat
@@ -1099,8 +1449,50 @@ local function sapuSekitar(lv)
     return dapat
 end
 
+-- Jenis barang yang server TERUS menolak, diistirahatkan sementara.
+--
+-- Ini penambal untuk kick "Terdeteksi aktivitas tidak wajar". Tiga kick berturut
+-- terekam, dan ketiganya didahului pola yang identik:
+--
+--     JamurKuburan tidak terambil setelah 3 percobaan
+--     JamurKuburan tidak terambil setelah 3 percobaan
+--     Melati       tidak terambil setelah 3 percobaan   -> KICK (~48 detik)
+--
+-- Bukan geraknya: kecepatan puncak terukur 48 stud/detik (wajar), kick tetap
+-- datang saat noclip DIMATIKAN, dan tetap datang saat snap jauh sudah dibatasi.
+-- Yang tersisa dan selalu ada di ketiga jejak adalah TEMBAKAN PROMPT YANG
+-- DITOLAK, diulang tanpa henti pada barang yang sama.
+--
+-- Barang yang ditolak biasanya memang belum boleh diambil akun itu (level/alat),
+-- jadi mengulanginya tidak akan pernah berhasil -- ia cuma menumpuk penolakan di
+-- sisi server sampai ditandai. Diistirahatkan per JENIS, bukan per part, karena
+-- part-nya respawn dengan nama sama tiap 30 detik.
+local sapuanTerakhir = ""
+local istirahatJenis = {}
+local ISTIRAHAT_DETIK = 180
+
+local function jenisDiistirahatkan(id)
+    local sampai = istirahatJenis[id]
+    if not sampai then return false end
+    if tick() > sampai then istirahatJenis[id] = nil return false end
+    return true
+end
+
 local function ambilSatu(entri, lv)
     if not entri.part.Parent then return false end     -- keburu diambil orang lain
+
+    -- Dicegat sebelum bergerak: percuma terbang ke barang yang sudah terbukti
+    -- ditolak, dan justru itu yang memicu kick.
+    --
+    -- JEDANYA WAJIB. Versi pertama cek ini `return false` telanjang, dan itu
+    -- melewati task.wait(JedaAmbil) di akhir fungsi -- sapuan jadi berputar dua
+    -- kali per detik tanpa henti. Terekam 222 baris "81 bahan dalam radius,
+    -- terdekat 3 stud" beruntun, dan kick datang lagi. Satu return tanpa jeda
+    -- cukup untuk mengubah penambal jadi hot loop.
+    if jenisDiistirahatkan(entri.id) then
+        task.wait(Config.JedaAmbil)
+        return false
+    end
 
     if Config.ModeJalan then
         -- JALAN, bukan terbang.
@@ -1163,8 +1555,25 @@ local function ambilSatu(entri, lv)
         --      sendiri karena daya apung, jadi terbang biasa selalu berhenti di
         --      atas permukaan dan promptnya di luar jangkauan. Menempelkan CFrame
         --      tiap percobaan menahan posisi itu melawan apungnya.
-        if Config.SnapKeBarang and hrp and entri.part.Parent then
-            pcall(function() hrp.CFrame = CFrame.new(entri.part.Position) end)
+        -- TIDAK ADA LAGI CFrame di sini. Ini inti perbaikannya.
+        --
+        -- Versi lama menyetel hrp.CFrame langsung ke titik barang tiap percobaan.
+        -- Server membacanya sebagai teleport, dan tiga kick berturut terekam
+        -- dengan pola yang sama: beberapa barang gagal -> tembakan berulang ->
+        -- "Terdeteksi aktivitas tidak wajar" di detik ke-48.
+        --
+        -- Snap itu ada karena pergiKe berhenti 6-8 stud dari barang sementara
+        -- prompt cuma menerima 6 -- jadi ia menambal celah yang seharusnya tidak
+        -- pernah ada. Celahnya sudah ditutup di sumbernya (TinggiTerbang 6 -> 3),
+        -- jadi penambalnya ikut dibuang.
+        --
+        -- Kalau ternyata masih di luar jangkauan, yang benar adalah TERBANG lagi
+        -- -- gerak fisik yang diterima server -- bukan memindahkan koordinat.
+        if hrp and entri.part.Parent then
+            local sisa = (entri.part.Position - hrp.Position).Magnitude
+            if sisa > 6 and coba == 1 then
+                pergiKe(entri.part.Position, 5)
+            end
         end
 
         ok = tembakPrompt(entri.part, true)   -- true = abaikan cooldown, ini sasaran kita
@@ -1174,7 +1583,12 @@ local function ambilSatu(entri, lv)
     if ok then
         lapor("Ambil " .. entri.id .. " (total " .. Status.dipungut .. ")")
     else
-        lapor(entri.id .. " tidak terambil setelah " .. coba .. " percobaan — dilewati")
+        -- Diistirahatkan, bukan sekadar dilewati sekali. Tanpa ini sapuan
+        -- berikutnya menemukan jenis yang sama lagi dan mengulang tembakan yang
+        -- sudah pasti ditolak -- itulah yang menumpuk sampai server memutus.
+        istirahatJenis[entri.id] = tick() + ISTIRAHAT_DETIK
+        lapor(entri.id .. " ditolak " .. coba .. "x — diistirahatkan "
+            .. ISTIRAHAT_DETIK .. " detik")
     end
     task.wait(Config.JedaAmbil)
     return ok
@@ -1305,7 +1719,20 @@ local function loopKumpul()
                 return
             end
 
-            lapor(#daftar .. " bahan dalam radius, terdekat " .. math.floor(daftar[1].jarak) .. " stud")
+            -- Dicetak HANYA kalau isinya berubah.
+            --
+            -- Baris ini dulu dicetak tiap putaran sapuan. Saat semua bahan
+            -- sedang diistirahatkan, sapuan berputar cepat dan console dibanjiri
+            -- ratusan baris identik -- 222 baris "81 bahan, terdekat 3 stud"
+            -- terekam dalam dua menit. Itu menyamarkan pesan yang benar-benar
+            -- penting, dan baris inilah yang membuatku hampir salah membaca
+            -- penyebab kick untuk kesekian kali.
+            local ringkas = #daftar .. "|" .. math.floor(daftar[1].jarak)
+            if ringkas ~= sapuanTerakhir then
+                sapuanTerakhir = ringkas
+                lapor(#daftar .. " bahan dalam radius, terdekat "
+                    .. math.floor(daftar[1].jarak) .. " stud")
+            end
 
             -- Terdekat dipilih ULANG tiap kali, bukan sekali di awal.
             --
@@ -1422,9 +1849,60 @@ local function loopMasak()
                 return
             end
 
+            -- MENDEKAT KE KOMPOR DULU.
+            --
+            -- CookStove dipanggil dari mana pun karakter kebetulan berdiri, dan
+            -- server menolaknya dengan "Dekati kompor dulu" -- terekam empat
+            -- resep beruntun ditolak dengan sebab yang sama persis. Komentar di
+            -- atas sudah menyebut "alat masak berada di dalam kiosmu sendiri",
+            -- tapi tidak ada satu baris pun yang benar-benar ke sana.
+            --
+            -- Alamatnya sudah diketahui script: KiosAktif.Kios_<nama>.AlatMasak,
+            -- jalur yang sama dipakai promptPotong(). Dicari per nama pemain,
+            -- BUKAN "AlatMasak pertama yang ketemu" -- KiosAktif memuat kios
+            -- seluruh pemain server, dan mendekati milik orang lain akan ditolak
+            -- dengan sebab yang sama tanpa pernah jelas kenapa.
+            local dekatiKompor
+            local ka = workspace:FindFirstChild("KiosAktif")
+            local kiosku = ka and ka:FindFirstChild("Kios_" .. LocalPlayer.Name)
+            local alat = kiosku and kiosku:FindFirstChild("AlatMasak")
+            if alat then
+                local titik = alat:IsA("BasePart") and alat.Position
+                    or (alat:IsA("Model") and alat:GetPivot().Position)
+                    or (alat:FindFirstChildWhichIsA("BasePart", true)
+                        and alat:FindFirstChildWhichIsA("BasePart", true).Position)
+                -- Fungsi, bukan sekali di muka.
+                --
+                -- Versi pertama memeriksa jarak SEKALI sebelum daftar menu, dan
+                -- terekam gejalanya: "Menuju kompor -> Masak Sate Gagak (ok) ->
+                -- Tumis Kamboja ditolak: Dekati kompor dulu". Resep pertama
+                -- berhasil, sisanya ditolak -- karena fitur lain (kumpul bahan)
+                -- menyeret karakter pergi di tengah daftar. Jaraknya harus
+                -- dipastikan ULANG sebelum tiap resep.
+                dekatiKompor = function()
+                    local _, h = karakter()
+                    if not (titik and h) then return false end
+                    if (titik - h.Position).Magnitude <= 12 then return true end
+                    laporMasak("Menuju kompor...")
+                    if not pergiKe(titik, 12) then
+                        laporMasak("Gagal mencapai kompor — dicoba lagi nanti")
+                        return false
+                    end
+                    return true
+                end
+                if not dekatiKompor() then return end
+            else
+                laporMasak("AlatMasak di kios sendiri tidak ketemu — lapak sudah diklaim?")
+                return
+            end
+
             for _, m in ipairs(MENU) do
                 if not Status.masak then return end
                 if Config.Menu[m.id] and kosong > 0 then
+                    -- Dipastikan lagi tiap resep: satu putaran daftar menu bisa
+                    -- memakan belasan detik (JedaMasak 3 dtk per resep), cukup
+                    -- lama untuk terseret jauh.
+                    if not dekatiKompor() then return end
                     local ok2, res = pcall(function()
                         return Remotes.CookStove:InvokeServer(m.id)
                     end)
@@ -1436,6 +1914,17 @@ local function loopMasak()
                         laporMasak("Masak " .. m.label)
                     elseif ok2 and type(res) == "table" then
                         laporMasak(m.label .. " ditolak: " .. tostring(res.reason))
+                        -- Antrean penuh berlaku untuk SELURUH dapur, bukan per
+                        -- resep. Meneruskan daftar cuma menghasilkan penolakan
+                        -- yang sudah pasti -- terekam lima beruntun tiap putaran.
+                        --
+                        -- Itu bukan sekadar berisik: penolakan yang menumpuk di
+                        -- sisi server persis yang memicu kick "aktivitas tidak
+                        -- wajar" pagi tadi. Begitu sebabnya antrean, berhenti.
+                        local sebab = tostring(res.reason or ""):lower()
+                        if sebab:find("antrian", 1, true) or sebab:find("antrean", 1, true) then
+                            break
+                        end
                     else
                         laporMasak(m.label .. " error: " .. tostring(res))
                     end
@@ -1484,7 +1973,7 @@ local function loopPotong()
             -- HoldDuration 1 detik: prompt ditahan, bukan ditembak sekali.
             for _ = 1, 3 do
                 if not Status.potong then return end
-                pcall(fireproximityprompt, prompt)
+                tahanPrompt(prompt)
                 task.wait(1.2)
             end
         end)
@@ -1675,6 +2164,21 @@ local function loopTanam()
                     end
 
                     if not bentrok then
+                        -- MENDEKAT DULU ke petaknya.
+                        --
+                        -- Tanam dulu ditembakkan ke koordinat dari mana pun
+                        -- karakter kebetulan berdiri -- nol perpindahan. Pola
+                        -- yang sama sudah terbukti ditolak di dua tempat lain
+                        -- hari ini: CookStove membalas "Dekati kompor dulu", dan
+                        -- prompt bahan tidak menghasilkan apa-apa di luar 6 stud.
+                        -- Server game ini konsisten memeriksa jarak.
+                        --
+                        -- Ambangnya menyalin loopSiram yang memang bekerja
+                        -- (JarakSiram 10), bukan angka baru yang dikarang.
+                        local _, hTanam = karakter()
+                        if hTanam and (titik - hTanam.Position).Magnitude > Config.JarakSiram then
+                            pergiKe(titik)
+                        end
                         pcall(function() Remotes.Tanam:FireServer(titik) end)
                         task.wait(Config.JedaKebun)
                         local kini = tanamanku(lahan)
