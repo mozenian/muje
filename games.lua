@@ -57,6 +57,11 @@ local FALL = API .. "w2"
 -- berada di berkas publik ini: yang bocor cuma PlaceId, bukan script-nya.
 local PS99 = API .. "ps99"
 
+-- Steal An Egg. Satu place saja sejauh ini -- tidak ada place karantina bot
+-- maupun varian sesi pertama seperti GaG2, jadi belum ada yang perlu dipetakan
+-- selain yang di bawah. Kalau nanti muncul, tambahkan barisnya di daftar.
+local SAE = API .. "sae"
+
 --[[
     BUKAN "shard". Nama itu keliru dan sempat menyesatkan.
 
@@ -104,6 +109,9 @@ local Games = {
     [17503543197]     = PS99,   -- World 3
     [140403681187145] = PS99,   -- World 4 (Fantasy World -- di sinilah Fiesta Maze)
     [130404940988186] = PS99,   -- BotWorld1 (KARANTINA BOT)
+
+    -- Steal An Egg -- universe 10563114921, MaxPlayers 7.
+    [107778070777162] = SAE,    -- Steal An Egg (place utama)
 
     -- ---- SENGAJA TIDAK DIPETAKAN ----
     -- PS99, dari PlaceFile.LocalPlaces -- semuanya bukan tempat farm:
