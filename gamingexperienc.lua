@@ -24,10 +24,22 @@ end
 -- Cache raw.githubusercontent bisa menahan perubahan beberapa menit. Parameter
 -- acak membuat tiap peluncuran menarik versi terbaru.
 local function ambil(url)
+    local req = (type(request) == "function" and request) or (type(http_request) == "function" and http_request) or (type(syn) == "table" and type(syn.request) == "function" and syn.request)
+    
     local ok, isi = pcall(function()
         local pemisah = string.find(url, "?", 1, true) and "&" or "?"
-        return game:HttpGet(url .. pemisah .. "r=" .. tostring(math.random(1, 1e9)))
+        local targetUrl = url .. pemisah .. "r=" .. tostring(math.random(1, 1e9))
+        
+        if req then
+            -- Bypass Anti-Cheat dengan native request
+            local res = req({Url = targetUrl, Method = "GET"})
+            return res.Body
+        else
+            -- Fallback
+            return game:HttpGet(targetUrl)
+        end
     end)
+    
     if not ok then return nil, tostring(isi) end
     return isi
 end
